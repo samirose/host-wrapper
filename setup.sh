@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# Configuration
+ALLOWLIST_DIR="./config"
+ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
+SSH_KEY_DIR="./ssh"
+SSH_KEY_FILE="$SSH_KEY_DIR/id_rsa"
+
+# 1. Create directories
+mkdir -p "$ALLOWLIST_DIR"
+mkdir -p "$SSH_KEY_DIR"
+
+# 2. Create sample allowlist
+if [ ! -f "$ALLOWLIST_FILE" ]; then
+    echo "Creating sample allowlist at $ALLOWLIST_FILE..."
+    cat <<EOF > "$ALLOWLIST_FILE"
+# Allowed commands for host-proxy
+/bin/ls
+/bin/cat
+EOF
+fi
+
+# 3. Generate SSH Key Pair (if not exists)
+if [ ! -f "$SSH_KEY_FILE" ]; then
+    echo "Generating SSH key for container at $SSH_KEY_FILE..."
+    ssh-keygen -t rsa -b 4096 -f "$SSH_KEY_FILE" -N "" -q
+fi
+
+# 4. Output instructions
+ABS_WRAPPER_PATH="$(pwd)/host-wrapper"
+ABS_ALLOWLIST_PATH="$(pwd)/$ALLOWLIST_FILE"
+PUB_KEY_CONTENT=$(cat "${SSH_KEY_FILE}.pub")
+
+echo "--------------------------------------------------------"
+echo "Setup Complete."
+echo "--------------------------------------------------------"
+echo "To finish configuration, add the following line to your host's"
+echo "~/.ssh/authorized_keys file:"
+echo ""
+echo "command=\"$ABS_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
+echo ""
+echo "--------------------------------------------------------"
+echo "Then, from your container, you can run commands like:"
+echo "ssh -i path/to/id_rsa host.docker.internal ./host-proxy /bin/ls /"
+echo "--------------------------------------------------------"
