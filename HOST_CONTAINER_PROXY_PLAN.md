@@ -22,9 +22,15 @@ The `argv` array is serialized as a sequence of [Netstrings](https://cr.yp.to/pr
 - **Logic:**
   1. Creates a pipe.
   2. Forks.
-  3. **Child:** Maps its `stdin` to the pipe, `execvp`s `ssh -q -T -i <key> user@host.docker.internal host-wrapper`.
+  3. **Child:** Maps its `stdin` to the pipe, `execvp`s `./host-proxy-ssh.sh`.
   4. **Parent:** Serializes its own `argc`/`argv` as netstrings and writes them to the pipe. It then loops, reading from its original `stdin` and writing to the pipe until EOF.
-  5. Parent waits for the child `ssh` process and returns its exit code.
+  5. Parent waits for the child process and returns its exit code.
+
+### C. SSH Connection Script (`host-proxy-ssh.sh`)
+- **Role:** Encapsulates the SSH command and configuration (key paths, hostname, user, etc.).
+- **Invocation:** Called by `host-proxy`.
+- **Logic:** `exec ssh -q -T -i <key> user@host host-wrapper`
+- **Benefit:** Allows users to modify SSH parameters (like port or target host) without recompiling the `host-proxy` binary.
 
 ### C. Host Wrapper (`host-wrapper.c`)
 - **Invocation:** Configured in the macOS host's `~/.ssh/authorized_keys` as `command="/usr/local/bin/host-wrapper /path/to/allowlist",no-pty,no-port-forwarding...`. The allowlist file is passed as a command-line argument.

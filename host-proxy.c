@@ -46,16 +46,14 @@ int main(int argc, char *argv[]) {
         }
         close(pipe_fds[0]);
 
-        // Execute SSH. 
-        // Note: The host and user should ideally be configured via env or a config file.
-        // For now, we assume standard 'host.docker.internal' or similar.
-        // The host wrapper path must also be known.
-        char *ssh_argv[] = {
-            "ssh", "-q", "-T", "host.docker.internal", "host-wrapper", NULL
+        // Execute the connection script.
+        // This script should contain the SSH command and configuration.
+        char *script_argv[] = {
+            "./host-proxy-ssh.sh", NULL
         };
 
-        execvp("ssh", ssh_argv);
-        perror("execvp ssh");
+        execvp(script_argv[0], script_argv);
+        perror("execvp host-proxy-ssh.sh");
         exit(1);
     } else {
         // --- Parent Process: Proxy ---

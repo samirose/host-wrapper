@@ -26,7 +26,18 @@ if [ ! -f "$SSH_KEY_FILE" ]; then
     ssh-keygen -t rsa -b 4096 -f "$SSH_KEY_FILE" -N "" -q
 fi
 
-# 4. Output instructions
+# 4. Generate the SSH Connection Script
+SSH_CONNECT_SCRIPT="./host-proxy-ssh.sh"
+echo "Generating SSH connection script at $SSH_CONNECT_SCRIPT..."
+cat <<EOF > "$SSH_CONNECT_SCRIPT"
+#!/bin/sh
+# This script is invoked by host-proxy to establish the SSH tunnel.
+# You can customize SSH options, ports, or hostnames here.
+exec ssh -q -T -i "$SSH_KEY_FILE" host.docker.internal host-wrapper
+EOF
+chmod +x "$SSH_CONNECT_SCRIPT"
+
+# 5. Output instructions
 ABS_WRAPPER_PATH="$(pwd)/host-wrapper"
 ABS_ALLOWLIST_PATH="$(pwd)/$ALLOWLIST_FILE"
 PUB_KEY_CONTENT=$(cat "${SSH_KEY_FILE}.pub")
@@ -41,5 +52,5 @@ echo "command=\"$ABS_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwardin
 echo ""
 echo "--------------------------------------------------------"
 echo "Then, from your container, you can run commands like:"
-echo "ssh -i path/to/id_rsa host.docker.internal ./host-proxy /bin/ls /"
+echo "./host-proxy /bin/ls /"
 echo "--------------------------------------------------------"
