@@ -15,8 +15,9 @@ if [ ! -f "$ALLOWLIST_FILE" ]; then
     echo "Creating sample allowlist at $ALLOWLIST_FILE..."
     cat <<EOF > "$ALLOWLIST_FILE"
 # Allowed commands for host-proxy
-/bin/ls
-/bin/cat
+/usr/bin/uname
+/usr/bin/printf
+/usr/bin/wc
 EOF
 fi
 
@@ -52,5 +53,5 @@ echo "command=\"$ABS_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwardin
 echo ""
 echo "--------------------------------------------------------"
 echo "Then, from your container, you can run commands like:"
-echo "./host-proxy /bin/ls /"
+echo "./host-proxy /usr/bin/uname"
 echo "--------------------------------------------------------"

@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <signal.h>
 
 /**
  * Writes a string as a netstring to a file descriptor.
@@ -40,10 +41,36 @@ void execute_ssh_child(int pipe_read_fd) {
 }
 
 /**
- * Parent process logic: Serializes argv, forwards stdin to the write end
- * of the pipe, and waits for the child process to exit.
+ * Stdin pump logic: Reads from stdin and writes to the pipe.
+ * Exits when stdin reaches EOF or the pipe is closed.
+ */
+void execute_stdin_pump(int pipe_write_fd) {
+    unsigned char buffer[4096];
+    ssize_t n;
+    while ((n = read(0, buffer, sizeof(buffer))) > 0) {
+        ssize_t written = 0;
+        while (written < n) {
+            ssize_t w = write(pipe_write_fd, buffer + written, (size_t)(n - written));
+            if (w <= 0) {
+                // Broken pipe or error, exit pump cleanly
+                close(pipe_write_fd);
+                exit(0);
+            }
+            written += w;
+        }
+    }
+    close(pipe_write_fd);
+    exit(0);
+}
+
+/**
+ * Parent process logic: Serializes argv, forks a dedicated stdin pump process,
+ * waits for the SSH process to exit, and then cleans up the pump.
  */
 int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *argv[]) {
+    // Ignore SIGPIPE so processes can handle broken pipes via return values
+    signal(SIGPIPE, SIG_IGN);
+
     // 1. Write target argc (argc-1 because argv[0] is host-proxy)
     char argc_str[16];
     int target_argc = argc - 1;
@@ -55,24 +82,32 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
         write_netstring(pipe_write_fd, argv[i], strlen(argv[i]));
     }
 
-    // 3. Forward remaining stdin to the pipe
-    unsigned char buffer[4096];
-    ssize_t n;
-    while ((n = read(0, buffer, sizeof(buffer))) > 0) {
-        ssize_t written = 0;
-        while (written < n) {
-            ssize_t w = write(pipe_write_fd, buffer + written, (size_t)(n - written));
-            if (w <= 0) break; // Broken pipe or error
-            written += w;
-        }
+    // 3. Fork a dedicated stdin pump process
+    pid_t pump_pid = fork();
+    if (pump_pid == -1) {
+        perror("fork pump");
+        return 1;
     }
 
-    // Close write end to signal EOF to the SSH process
+    if (pump_pid == 0) {
+        execute_stdin_pump(pipe_write_fd);
+        // execute_stdin_pump never returns
+    }
+
+    // --- Main Parent Process ---
+    // Close the write end of the pipe in the parent so that when the pump dies,
+    // the SSH process receives an EOF on its stdin.
     close(pipe_write_fd);
 
-    // 4. Wait for SSH to finish and propagate exit code
+    // 4. Wait for SSH to finish
     int status;
     waitpid(child_pid, &status, 0);
+
+    // 5. SSH is done. The host command has finished.
+    // Clean up the pump if it is still waiting for input (e.g., from an open terminal).
+    kill(pump_pid, SIGTERM);
+    waitpid(pump_pid, NULL, 0);
+
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);
     }
