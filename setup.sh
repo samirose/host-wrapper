@@ -4,7 +4,7 @@
 ALLOWLIST_DIR="./config"
 ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
 SSH_KEY_DIR="./ssh"
-SSH_KEY_FILE="$SSH_KEY_DIR/id_rsa"
+SSH_KEY_FILE="$SSH_KEY_DIR/id_ed25519"
 
 # 1. Create directories
 mkdir -p "$ALLOWLIST_DIR"
@@ -24,7 +24,7 @@ fi
 # 3. Generate SSH Key Pair (if not exists)
 if [ ! -f "$SSH_KEY_FILE" ]; then
     echo "Generating SSH key for container at $SSH_KEY_FILE..."
-    ssh-keygen -t rsa -b 4096 -f "$SSH_KEY_FILE" -N "" -q
+    ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "agent-harness.key"
 fi
 
 # 4. Generate the SSH Connection Script
