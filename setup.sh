@@ -34,7 +34,7 @@ cat <<EOF > "$SSH_CONNECT_SCRIPT"
 #!/bin/sh
 # This script is invoked by host-proxy to establish the SSH tunnel.
 # You can customize SSH options, ports, or hostnames here.
-exec ssh -q -T -i "$SSH_KEY_FILE" host.docker.internal host-wrapper
+exec ssh -q -T -i "$SSH_KEY_FILE" "\${HOST_WRAPPER_USER}@\${HOST_WRAPPER_IP}" host-wrapper
 EOF
 chmod +x "$SSH_CONNECT_SCRIPT"
 
