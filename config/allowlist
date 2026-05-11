@@ -1,3 +1,4 @@
 # Allowed commands for host-proxy
-/bin/ls
-/bin/cat
+/usr/bin/uname
+/usr/bin/printf
+/usr/bin/wc
