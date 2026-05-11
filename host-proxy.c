@@ -7,15 +7,35 @@
 #include <signal.h>
 
 /**
+ * Robustly writes all data to a file descriptor, handling partial writes
+ * and EINTR. Returns 0 on success, -1 on error.
+ */
+int write_all(int fd, const void *buf, size_t count) {
+    const char *ptr = buf;
+    size_t written = 0;
+    while (written < count) {
+        ssize_t w = write(fd, ptr + written, count - written);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (w == 0) break;
+        written += (size_t)w;
+    }
+    return (written == count) ? 0 : -1;
+}
+
+/**
  * Writes a string as a netstring to a file descriptor.
  * Format: [length]:[data],
  */
-void write_netstring(int fd, const char *data, size_t len) {
+int write_netstring(int fd, const char *data, size_t len) {
     char header[32];
     int header_len = snprintf(header, sizeof(header), "%zu:", len);
-    write(fd, header, (size_t)header_len);
-    write(fd, data, len);
-    write(fd, ",", 1);
+    if (write_all(fd, header, (size_t)header_len) == -1) return -1;
+    if (write_all(fd, data, len) == -1) return -1;
+    if (write_all(fd, ",", 1) == -1) return -1;
+    return 0;
 }
 
 /**
@@ -48,15 +68,10 @@ void execute_stdin_pump(int pipe_write_fd) {
     unsigned char buffer[4096];
     ssize_t n;
     while ((n = read(0, buffer, sizeof(buffer))) > 0) {
-        ssize_t written = 0;
-        while (written < n) {
-            ssize_t w = write(pipe_write_fd, buffer + written, (size_t)(n - written));
-            if (w <= 0) {
-                // Broken pipe or error, exit pump cleanly
-                close(pipe_write_fd);
-                exit(0);
-            }
-            written += w;
+        if (write_all(pipe_write_fd, buffer, (size_t)n) == -1) {
+            // Broken pipe or error, exit pump cleanly
+            close(pipe_write_fd);
+            exit(0);
         }
     }
     close(pipe_write_fd);
@@ -75,11 +90,20 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
     char argc_str[16];
     int target_argc = argc - 1;
     snprintf(argc_str, sizeof(argc_str), "%d", target_argc);
-    write_netstring(pipe_write_fd, argc_str, strlen(argc_str));
+    if (write_netstring(pipe_write_fd, argc_str, strlen(argc_str)) == -1) {
+        // Pipe is likely broken already
+        close(pipe_write_fd);
+        waitpid(child_pid, NULL, 0);
+        return 1;
+    }
 
     // 2. Write target argv
     for (int i = 1; i < argc; i++) {
-        write_netstring(pipe_write_fd, argv[i], strlen(argv[i]));
+        if (write_netstring(pipe_write_fd, argv[i], strlen(argv[i])) == -1) {
+            close(pipe_write_fd);
+            waitpid(child_pid, NULL, 0);
+            return 1;
+        }
     }
 
     // 3. Fork a dedicated stdin pump process

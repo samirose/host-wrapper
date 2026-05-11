@@ -15,10 +15,13 @@
  */
 int read_byte() {
     unsigned char c;
-    ssize_t n = read(0, &c, 1);
-    if (n == 1) return (int)c;
-    if (n == 0) return EOF;
-    return -2; // Error
+    while (1) {
+        ssize_t n = read(0, &c, 1);
+        if (n == 1) return (int)c;
+        if (n == 0) return EOF;
+        if (errno == EINTR) continue;
+        return -2; // Error
+    }
 }
 
 /**
