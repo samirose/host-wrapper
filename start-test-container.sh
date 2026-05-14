@@ -7,8 +7,15 @@ OPENCODE_SETTINGS_DIR="$HOME/.local/share/opencode"
 IMAGE="ghcr.io/nixos/nix"
 NIX_STORE_VOLUME="nix-store-$PROJECT_NAME"
 NIX_USER_CACHE="$PROJECT_DIR/.cache/nix-user/root"
+NETWORK_NAME="agent-harness-net"
 
 mkdir -p "$NIX_USER_CACHE" "$OPENCODE_SETTINGS_DIR"
+
+# Ensure isolated network exists
+if ! container network list | grep -q "$NETWORK_NAME"; then
+    echo "Creating isolated network $NETWORK_NAME..."
+    container network create "$NETWORK_NAME"
+fi
 
 # Reset Nix store option
 if [[ "$1" == "--reset" ]]; then
@@ -47,6 +54,7 @@ GEMINI_API_KEY="$(security find-generic-password -a "$USER" -s "gemini-api-key" 
 
 container run -it --rm \
   --name "opencode-nix-session-$(date +%s)" \
+  --network "$NETWORK_NAME" \
   --init \
   --workdir /project \
   --cpus 2 \
