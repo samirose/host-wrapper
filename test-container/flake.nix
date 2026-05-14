@@ -43,13 +43,16 @@
               bind       # dig, nslookup
               netcat     # nc
               iproute2   # ip
+
+              # Process Utilities
+              procps     # ps, top, uptime
             ];
 
             shellHook = ''
               export PS1="\[\e[1;32m\][agent-harness-ai] \[\e[m\]\w \$ "
               echo "--- Agent Harness AI Development Shell ---"
               echo "System: ${system}"
-              echo "Tools loaded: gcc, gnumake, ssh, git, curl, jq, python3, net-utils"
+              echo "Tools loaded: gcc, gnumake, ssh, git, curl, jq, python3, net-utils, procps"
               echo "-------------------------------------------"
             '';
           };

@@ -47,6 +47,7 @@ GEMINI_API_KEY="$(security find-generic-password -a "$USER" -s "gemini-api-key" 
 
 container run -it --rm \
   --name "opencode-nix-session-$(date +%s)" \
+  --init \
   --workdir /project \
   --cpus 2 \
   --memory 4g \
