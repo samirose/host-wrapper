@@ -45,20 +45,12 @@ container run --rm \
 # Run session
 GEMINI_API_KEY="$(security find-generic-password -a "$USER" -s "gemini-api-key" -w)"
 
-# Detect Host IP (primary interface)
-HOST_IP="$(ipconfig getifaddr "$(route get default | grep interface | awk '{print $2}')")"
-HOST_USER="$USER"
-
-echo "Detected Host: $HOST_USER@$HOST_IP"
-
 container run -it --rm \
   --name "opencode-nix-session-$(date +%s)" \
   --workdir /project \
   --cpus 2 \
   --memory 4g \
   -e GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY" \
-  -e HOST_WRAPPER_IP="$HOST_IP" \
-  -e HOST_WRAPPER_USER="$HOST_USER" \
   -e NIX_CONFIG="
      experimental-features = nix-command flakes
      auto-optimise-store = true

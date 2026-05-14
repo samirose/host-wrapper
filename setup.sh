@@ -33,8 +33,8 @@ echo "Generating SSH connection script at $SSH_CONNECT_SCRIPT..."
 cat <<EOF > "$SSH_CONNECT_SCRIPT"
 #!/bin/sh
 # This script is invoked by host-proxy to establish the SSH tunnel.
-# You can customize SSH options, ports, or hostnames here.
-exec ssh -q -T -i "$SSH_KEY_FILE" "\${HOST_WRAPPER_USER}@\${HOST_WRAPPER_IP}" host-wrapper
+# Connects to the host using the Apple Container DNS mapping.
+exec ssh -q -T -o StrictHostKeyChecking=no -i "$SSH_KEY_FILE" "$USER@host-os.internal" host-wrapper
 EOF
 chmod +x "$SSH_CONNECT_SCRIPT"
 
@@ -46,8 +46,11 @@ PUB_KEY_CONTENT=$(cat "${SSH_KEY_FILE}.pub")
 echo "--------------------------------------------------------"
 echo "Setup Complete."
 echo "--------------------------------------------------------"
-echo "To finish configuration, add the following line to your host's"
-echo "~/.ssh/authorized_keys file:"
+echo "1. Run this command once per reboot to allow container-to-host networking:"
+echo "   sudo container system dns create host-os.internal --localhost 203.0.113.113"
+echo ""
+echo "2. To finish configuration, add the following line to your host's"
+echo "   ~/.ssh/authorized_keys file:"
 echo ""
 echo "command=\"$ABS_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
 echo ""
