@@ -8,6 +8,13 @@ IMAGE="ghcr.io/nixos/nix"
 NIX_STORE_VOLUME="nix-store-$PROJECT_NAME"
 NIX_USER_CACHE="$PROJECT_DIR/.cache/nix-user/root"
 NETWORK_NAME="agent-harness-net"
+NIX_CONFIG="
+  experimental-features = nix-command flakes
+  auto-optimise-store = true
+  extra-substituters = https://cache.numtide.com
+  extra-trusted-public-keys = niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g=
+  warn-dirty = false
+"
 
 mkdir -p "$NIX_USER_CACHE" "$OPENCODE_SETTINGS_DIR"
 
@@ -60,13 +67,7 @@ container run -it --rm \
   --cpus 2 \
   --memory 4g \
   -e GOOGLE_GENERATIVE_AI_API_KEY="$GEMINI_API_KEY" \
-  -e NIX_CONFIG="
-     experimental-features = nix-command flakes
-     auto-optimise-store = true
-     extra-substituters = https://cache.numtide.com
-     extra-trusted-public-keys = niks3.numtide.com-1:DTx8wZduET09hRmMtKdQDxNNthLQETkc/yaX7M4qK0g=
-     warn-dirty = false
-     " \
+  -e NIX_CONFIG="$NIX_CONFIG" \
   --mount "type=bind,source=$PROJECT_DIR,target=/project" \
   --mount "type=volume,source=$NIX_STORE_VOLUME,target=/nix" \
   --mount "type=bind,source=$NIX_USER_CACHE,target=/root/.cache" \
