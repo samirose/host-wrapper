@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Test Suite for Host-Container Command Proxy
 # This script tests the logic and protocol of host-proxy and host-wrapper 
