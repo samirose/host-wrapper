@@ -49,7 +49,17 @@ char* parse_netstring(size_t *out_len) {
         return NULL;
     }
 
-    size_t len = (size_t)atoll(len_buf);
+    char *endptr;
+    errno = 0;
+    unsigned long long parsed_len = strtoull(len_buf, &endptr, 10);
+    
+    // Check for overflow or no digits parsed
+    if (errno == ERANGE || endptr == len_buf || *endptr != '\0') {
+        fprintf(stderr, "Error: Invalid netstring length format\n");
+        return NULL;
+    }
+
+    size_t len = (size_t)parsed_len;
     if (len > MAX_ARG_LEN) {
         fprintf(stderr, "Error: Argument too long (%zu bytes)\n", len);
         return NULL;
@@ -137,7 +147,17 @@ int main(int argc, char *argv[]) {
     char *argc_str = parse_netstring(&dummy_len);
     if (!argc_str) return 1;
 
-    int target_argc = atoi(argc_str);
+    char *endptr;
+    errno = 0;
+    long target_argc_long = strtol(argc_str, &endptr, 10);
+    
+    if (errno == ERANGE || endptr == argc_str || *endptr != '\0') {
+        fprintf(stderr, "Error: Invalid target argc format\n");
+        free(argc_str);
+        return 1;
+    }
+    
+    int target_argc = (int)target_argc_long;
     free(argc_str);
 
     if (target_argc <= 0 || target_argc > MAX_ARGS) {
