@@ -1,5 +1,12 @@
 host-proxy
 host-wrapper
+host-wrapper-fuzzer
 host-proxy-ssh.sh
 ssh/
 .cache/
+
+# Fuzzer artifacts
+crash-*
+leak-*
+timeout-*
+oom-*

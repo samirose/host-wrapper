@@ -6,18 +6,50 @@
 #include <errno.h>
 #include <ctype.h>
 
+#include <stdarg.h>
+
 #define MAX_ARGS 1024
 #define MAX_ARG_LEN 65536
 
 /**
- * Reads a single byte from stdin (file descriptor 0) without buffering.
- * This is crucial because standard C buffering (like getchar or fread) 
- * would consume bytes intended for the target command.
+ * Logs an error to stderr. If FUZZING is defined, this is a no-op 
+ * to ensure the fuzzer runs at maximum speed without I/O blocking.
  */
-int read_byte() {
+void log_error(const char *format, ...) {
+#ifndef FUZZING
+    va_list args;
+    va_start(args, format);
+    vfprintf(stderr, format, args);
+    va_end(args);
+#else
+    (void)format; // Suppress unused parameter warning
+#endif
+}
+
+/**
+ * Parser context to allow reading from either a file descriptor or memory buffer.
+ */
+typedef struct {
+    int fd;
+    const unsigned char *buf;
+    size_t size;
+    size_t pos;
+} ParserContext;
+
+/**
+ * Reads a single byte from the context source.
+ */
+int get_next_byte(ParserContext *ctx) {
+    if (ctx->buf) {
+        if (ctx->pos < ctx->size) {
+            return (int)ctx->buf[ctx->pos++];
+        }
+        return EOF;
+    }
+
     unsigned char c;
     while (1) {
-        ssize_t n = read(0, &c, 1);
+        ssize_t n = read(ctx->fd, &c, 1);
         if (n == 1) return (int)c;
         if (n == 0) return EOF;
         if (errno == EINTR) continue;
@@ -26,27 +58,27 @@ int read_byte() {
 }
 
 /**
- * Parses a single netstring from stdin.
+ * Parses a single netstring from the context.
  * Format: [length]:[data],
  */
-char* parse_netstring(size_t *out_len) {
+char* parse_netstring(ParserContext *ctx, size_t *out_len) {
     char len_buf[16];
     int i = 0;
     int c;
 
     // Read length digits
-    while ((c = read_byte()) >= 0 && isdigit(c)) {
+    while ((c = get_next_byte(ctx)) >= 0 && isdigit(c)) {
         if (i < (int)sizeof(len_buf) - 1) {
             len_buf[i++] = (char)c;
         } else {
-            fprintf(stderr, "Error: Netstring length too long\n");
+            log_error("Error: Netstring length too long\n");
             return NULL;
         }
     }
     len_buf[i] = '\0';
 
     if (c != ':') {
-        fprintf(stderr, "Error: Malformed netstring (expected ':')\n");
+        log_error("Error: Malformed netstring (expected ':')\n");
         return NULL;
     }
 
@@ -56,27 +88,27 @@ char* parse_netstring(size_t *out_len) {
     
     // Check for overflow or no digits parsed
     if (errno == ERANGE || endptr == len_buf || *endptr != '\0') {
-        fprintf(stderr, "Error: Invalid netstring length format\n");
+        log_error("Error: Invalid netstring length format\n");
         return NULL;
     }
 
     size_t len = (size_t)parsed_len;
     if (len > MAX_ARG_LEN) {
-        fprintf(stderr, "Error: Argument too long (%zu bytes)\n", len);
+        log_error("Error: Argument too long (%zu bytes)\n", len);
         return NULL;
     }
 
     char *data = malloc(len + 1);
     if (!data) {
-        perror("malloc");
+        log_error("malloc: %s\n", strerror(errno));
         return NULL;
     }
 
     // Read exact number of data bytes
     for (size_t j = 0; j < len; j++) {
-        c = read_byte();
+        c = get_next_byte(ctx);
         if (c < 0) {
-            fprintf(stderr, "Error: Unexpected EOF or error in netstring data\n");
+            log_error("Error: Unexpected EOF or error in netstring data\n");
             free(data);
             return NULL;
         }
@@ -85,8 +117,8 @@ char* parse_netstring(size_t *out_len) {
     data[len] = '\0';
 
     // Final trailing comma
-    if (read_byte() != ',') {
-        fprintf(stderr, "Error: Malformed netstring (expected ',')\n");
+    if (get_next_byte(ctx) != ',') {
+        log_error("Error: Malformed netstring (expected ',')\n");
         free(data);
         return NULL;
     }
@@ -100,9 +132,16 @@ char* parse_netstring(size_t *out_len) {
  * The allowlist supports comments (#) and empty lines.
  */
 int is_allowed(const char *cmd, const char *allowlist_path) {
+#ifdef FUZZING
+    (void)allowlist_path;
+    // Fast mock for fuzzing without disk I/O
+    if (strcmp(cmd, "/usr/bin/uname") == 0) return 1;
+    if (strcmp(cmd, "/usr/bin/printf") == 0) return 1;
+    return 0;
+#else
     FILE *fp = fopen(allowlist_path, "r");
     if (!fp) {
-        perror("fopen allowlist");
+        log_error("fopen allowlist: %s\n", strerror(errno));
         return 0;
     }
 
@@ -144,8 +183,74 @@ int is_allowed(const char *cmd, const char *allowlist_path) {
     free(line);
     fclose(fp);
     return allowed;
+#endif
 }
 
+int run_wrapper(ParserContext *ctx, const char *allowlist_path) {
+    int ret = 1;
+    char *argc_str = NULL;
+    char **target_argv = NULL;
+    int target_argc = 0;
+
+    // 1. Parse target argc
+    size_t dummy_len;
+    argc_str = parse_netstring(ctx, &dummy_len);
+    if (!argc_str) goto cleanup;
+
+    char *endptr;
+    errno = 0;
+    long target_argc_long = strtol(argc_str, &endptr, 10);
+    
+    if (errno == ERANGE || endptr == argc_str || *endptr != '\0') {
+        log_error("Error: Invalid target argc format\n");
+        goto cleanup;
+    }
+    
+    target_argc = (int)target_argc_long;
+    if (target_argc <= 0 || target_argc > MAX_ARGS) {
+        log_error("Error: Invalid target argc (%d)\n", target_argc);
+        goto cleanup;
+    }
+
+    // 2. Parse target argv array
+    target_argv = calloc((size_t)target_argc + 1, sizeof(char *));
+    if (!target_argv) {
+        log_error("calloc: %s\n", strerror(errno));
+        goto cleanup;
+    }
+
+    for (int i = 0; i < target_argc; i++) {
+        target_argv[i] = parse_netstring(ctx, NULL);
+        if (!target_argv[i]) goto cleanup;
+    }
+    target_argv[target_argc] = NULL;
+
+    // 3. Validation
+    if (!is_allowed(target_argv[0], allowlist_path)) {
+        log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
+        goto cleanup;
+    }
+
+    // 4. Execution
+#ifndef FUZZING
+    execvp(target_argv[0], target_argv);
+    log_error("execvp: %s\n", strerror(errno));
+#else
+    ret = 0; // Success in fuzzing mode
+#endif
+
+cleanup:
+    if (argc_str) free(argc_str);
+    if (target_argv) {
+        for (int i = 0; i < target_argc; i++) {
+            if (target_argv[i]) free(target_argv[i]);
+        }
+        free(target_argv);
+    }
+    return ret;
+}
+
+#ifndef FUZZING
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <allowlist_path>\n", argv[0]);
@@ -153,61 +258,7 @@ int main(int argc, char *argv[]) {
     }
     const char *allowlist_path = argv[1];
 
-    // 1. Parse target argc
-    size_t dummy_len;
-    char *argc_str = parse_netstring(&dummy_len);
-    if (!argc_str) return 1;
-
-    char *endptr;
-    errno = 0;
-    long target_argc_long = strtol(argc_str, &endptr, 10);
-    
-    if (errno == ERANGE || endptr == argc_str || *endptr != '\0') {
-        fprintf(stderr, "Error: Invalid target argc format\n");
-        free(argc_str);
-        return 1;
-    }
-    
-    int target_argc = (int)target_argc_long;
-    free(argc_str);
-
-    if (target_argc <= 0 || target_argc > MAX_ARGS) {
-        fprintf(stderr, "Error: Invalid target argc (%d)\n", target_argc);
-        return 1;
-    }
-
-    // 2. Parse target argv array
-    char **target_argv = calloc((size_t)target_argc + 1, sizeof(char *));
-    if (!target_argv) {
-        perror("calloc");
-        return 1;
-    }
-
-    for (int i = 0; i < target_argc; i++) {
-        target_argv[i] = parse_netstring(NULL);
-        if (!target_argv[i]) return 1;
-    }
-    target_argv[target_argc] = NULL;
-
-    // 3. Validation
-    if (!is_allowed(target_argv[0], allowlist_path)) {
-        fprintf(stderr, "Error: Command '%s' not in allowlist\n", target_argv[0]);
-        // Cleanup parsed strings before exit
-        for (int i = 0; i < target_argc; i++) free(target_argv[i]);
-        free(target_argv);
-        return 1;
-    }
-
-    // 4. Execution
-    // The kernel will replace this process image. 
-    // Stdin (fd 0) is positioned exactly after the header.
-    execvp(target_argv[0], target_argv);
-
-    // If execvp returns, an error occurred
-    perror("execvp");
-    
-    // Cleanup
-    for (int i = 0; i < target_argc; i++) free(target_argv[i]);
-    free(target_argv);
-    return 1;
+    ParserContext ctx = { .fd = STDIN_FILENO, .buf = NULL, .size = 0, .pos = 0 };
+    return run_wrapper(&ctx, allowlist_path);
 }
+#endif
