@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -105,9 +106,12 @@ int is_allowed(const char *cmd, const char *allowlist_path) {
         return 0;
     }
 
-    char line[1024];
+    char *line = NULL;
+    size_t linecap = 0;
+    ssize_t linelen;
     int allowed = 0;
-    while (fgets(line, sizeof(line), fp)) {
+
+    while ((linelen = getline(&line, &linecap, fp)) > 0) {
         // Strip newline
         line[strcspn(line, "\r\n")] = 0;
 
@@ -131,6 +135,7 @@ int is_allowed(const char *cmd, const char *allowlist_path) {
         }
     }
 
+    free(line);
     fclose(fp);
     return allowed;
 }
