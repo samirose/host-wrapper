@@ -118,9 +118,15 @@ int is_allowed(const char *cmd, const char *allowlist_path) {
         char *p = line;
         // Skip leading whitespace
         while (isspace(*p)) p++;
-        
-        // Skip comments and empty lines
-        if (*p == '#' || *p == '\0') continue;
+
+        // Handle inline comments: find the first '#' and truncate the string there
+        char *comment = strchr(p, '#');
+        if (comment) {
+            *comment = '\0';
+        }
+
+        // If the line is empty after stripping comments/whitespace, skip it
+        if (*p == '\0') continue;
 
         // Strip trailing whitespace
         char *end = p + strlen(p) - 1;

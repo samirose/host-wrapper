@@ -197,6 +197,37 @@ else
     fail_count=$((fail_count + 1))
 fi
 
+# Scenario 11: Invalid argc (0 or negative)
+run_test_pipe "Invalid argc (0)" "Error: Invalid target argc (0)" "1:0," "$HOST_WRAPPER" "$ALLOWLIST"
+
+# Scenario 12: argc too large
+run_test_pipe "Argc too large" "Error: Invalid target argc (1025)" "4:1025," "$HOST_WRAPPER" "$ALLOWLIST"
+
+# Scenario 13: Partial match in allowlist (prefix/suffix)
+# We want to ensure '/usr/bin/un' doesn't match '/usr/bin/uname'
+run_test_pipe "Allowlist prefix match" "Error: Command '/usr/bin/un' not in allowlist" "1:1,11:/usr/bin/un," "$HOST_WRAPPER" "$ALLOWLIST"
+
+# Scenario 14: Premature EOF in netstring data
+# Header says 1 byte, but we send '1' and then close without the comma.
+run_test_pipe "Premature EOF" "Error: Malformed netstring (expected ',')" "2:1,1:1" "$HOST_WRAPPER" "$ALLOWLIST"
+
+# Scenario 15: Extremely long allowlist line (testing getline)
+# Use OS max path limit divided into valid NAME_MAX chunks, plus a long comment
+SYS_MAX=$(getconf PATH_MAX / 2>/dev/null || echo 1024)
+TARGET_LEN=$((SYS_MAX - 50))
+CHUNK=$(printf 'A%.0s' {1..200})
+
+LONG_PATH="/usr/bin"
+while [ ${#LONG_PATH} -lt $TARGET_LEN ]; do
+    LONG_PATH="$LONG_PATH/$CHUNK"
+done
+# Trim to exact length just to be clean
+LONG_PATH="${LONG_PATH:0:$TARGET_LEN}"
+
+LONG_COMMENT=$(printf 'C%.0s' {1..2000})
+echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
+run_test_pipe "Long allowlist line match" "execvp: No such file or directory" "1:1,${#LONG_PATH}:$LONG_PATH," "$HOST_WRAPPER" "$ALLOWLIST"
+
 # Cleanup Environment
 cd - > /dev/null
 rm -rf "$TEST_DIR"
