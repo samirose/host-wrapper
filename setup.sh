@@ -3,6 +3,9 @@
 # Configuration
 ALLOWLIST_DIR="./config"
 ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
+HOST_WRAPPER_USER="$USER"
+HOST_DNS_NAME="host-os.internal"
+HOST_DUMMY_IP="203.0.113.113"
 SSH_KEY_DIR="./ssh"
 SSH_KEY_FILE="$SSH_KEY_DIR/id_ed25519"
 
@@ -34,7 +37,7 @@ cat <<EOF > "$SSH_CONNECT_SCRIPT"
 #!/bin/sh
 # This script is invoked by host-proxy to establish the SSH tunnel.
 # Connects to the host using the Apple Container DNS mapping.
-exec ssh -q -T -o StrictHostKeyChecking=no -i "$SSH_KEY_FILE" "$USER@host-os.internal" host-wrapper
+exec ssh -q -T -o StrictHostKeyChecking=no -i "$SSH_KEY_FILE" "$HOST_WRAPPER_USER@$HOST_DNS_NAME" host-wrapper
 EOF
 chmod +x "$SSH_CONNECT_SCRIPT"
 
@@ -47,7 +50,7 @@ echo "--------------------------------------------------------"
 echo "Setup Complete."
 echo "--------------------------------------------------------"
 echo "1. Run this command once per reboot to allow container-to-host networking:"
-echo "   sudo container system dns create host-os.internal --localhost 203.0.113.113"
+echo "   sudo container system dns create $HOST_DNS_NAME --localhost $HOST_DUMMY_IP"
 echo ""
 echo "2. To finish configuration, add the following line to your host's"
 echo "   ~/.ssh/authorized_keys file:"
