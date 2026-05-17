@@ -1,21 +1,21 @@
 CC = cc
 CFLAGS = -Wall -Wextra -O2
-CLANG ?= clang
+CLANG = clang
 
 all: host-wrapper host-proxy
 
 host-wrapper: host-wrapper.c
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ host-wrapper.c
 
 host-proxy: host-proxy.c
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -o $@ host-proxy.c
 
 # Test binaries with sanitizers
 host-wrapper-test: host-wrapper.c
-	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ $<
+	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-wrapper.c
 
 host-proxy-test: host-proxy.c
-	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ $<
+	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-proxy.c
 
 # Run the test suite using the sanitized test binaries
 test: host-wrapper-test host-proxy-test
@@ -24,7 +24,7 @@ test: host-wrapper-test host-proxy-test
 # Fuzzing target
 # Note: This requires clang with libFuzzer support.
 host-wrapper-fuzzer: host-wrapper.c fuzz.c
-	$(CLANG) $(CFLAGS) -DFUZZING -fsanitize=fuzzer,address -o $@ $^
+	$(CLANG) $(CFLAGS) -DFUZZING -fsanitize=fuzzer,address -o $@ host-wrapper.c fuzz.c
 
 fuzz: host-wrapper-fuzzer fuzz.dict
 	mkdir -p corpus
@@ -41,5 +41,3 @@ clean:
 	rm -f host-wrapper host-proxy host-wrapper-fuzzer host-wrapper-test host-proxy-test
 	rm -rf corpus_min
 	rm -f crash-* leak-* timeout-* oom-*
-
-.PHONY: all clean fuzz fuzz-minimize test
