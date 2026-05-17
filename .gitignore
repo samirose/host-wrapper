@@ -1,5 +1,7 @@
 host-proxy
 host-wrapper
+host-proxy-test
+host-wrapper-test
 host-wrapper-fuzzer
 host-proxy-ssh.sh
 ssh/

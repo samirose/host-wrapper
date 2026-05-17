@@ -9,20 +9,22 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
 
-# Ensure binaries are up to date before isolating
-make
+# Ensure binaries are provided or use defaults
+HOST_PROXY="${HOST_PROXY:-./host-proxy}"
+HOST_WRAPPER="${HOST_WRAPPER:-./host-wrapper}"
 
 # Setup isolated environment
 TEST_DIR=$(mktemp -d)
-cp host-proxy "$TEST_DIR/"
-cp host-wrapper "$TEST_DIR/"
+cp "$HOST_PROXY" "$TEST_DIR/host-proxy"
+cp "$HOST_WRAPPER" "$TEST_DIR/host-wrapper"
 
 # Move into isolated directory to prevent touching repo files
 cd "$TEST_DIR" || exit 1
 
 ALLOWLIST="./allowlist"
-HOST_PROXY="./host-proxy"
-HOST_WRAPPER="./host-wrapper"
+# Use localized paths within the isolated directory
+LOCAL_HOST_PROXY="./host-proxy"
+LOCAL_HOST_WRAPPER="./host-wrapper"
 
 # 1. Create a dummy allowlist with safe, benign commands
 cat <<EOF > "$ALLOWLIST"
@@ -35,7 +37,7 @@ EOF
 # This intercepts the connection from host-proxy and routes it locally.
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
-exec "$HOST_WRAPPER" "$ALLOWLIST"
+exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 EOF
 chmod +x "host-proxy-ssh.sh"
 
@@ -104,33 +106,33 @@ run_test_pipe() {
 }
 
 # Scenario 1: Basic command execution
-run_test "Basic execution (uname)" "Darwin" "" "$HOST_PROXY" /usr/bin/uname
+run_test "Basic execution (uname)" "Darwin" "" "$LOCAL_HOST_PROXY" /usr/bin/uname
 
 # Scenario 2: Argument with spaces
-run_test "Spaces in args" "[hello space]" "" "$HOST_PROXY" /usr/bin/printf "[%s]\n" "hello space"
+run_test "Spaces in args" "[hello space]" "" "$LOCAL_HOST_PROXY" /usr/bin/printf "[%s]\n" "hello space"
 
 # Scenario 3: Stdin forwarding (using wc -c to count bytes)
-run_test "Stdin piping (wc)" "12" "hello stream" "$HOST_PROXY" /usr/bin/wc -c
+run_test "Stdin piping (wc)" "12" "hello stream" "$LOCAL_HOST_PROXY" /usr/bin/wc -c
 
 # Scenario 4: Command NOT in allowlist
-run_test_fail "Blocked command" "Error: Command '/usr/bin/id' not in allowlist" "" "$HOST_PROXY" /usr/bin/id
+run_test_fail "Blocked command" "Error: Command '/usr/bin/id' not in allowlist" "" "$LOCAL_HOST_PROXY" /usr/bin/id
 
 # Scenario 5: Multiple arguments
-run_test "Multi-args" "arg1-arg2" "" "$HOST_PROXY" /usr/bin/printf "%s-%s\n" arg1 arg2
+run_test "Multi-args" "arg1-arg2" "" "$LOCAL_HOST_PROXY" /usr/bin/printf "%s-%s\n" arg1 arg2
 
 # Scenario 5.5: Exit code propagation
 # /usr/bin/false always exits with 1. We must add it to the allowlist first.
 echo "/usr/bin/false" >> "$ALLOWLIST"
-run_test_fail "Exit code propagation" "" "" "$HOST_PROXY" /usr/bin/false
+run_test_fail "Exit code propagation" "" "" "$LOCAL_HOST_PROXY" /usr/bin/false
 
 # Scenario 6: Malformed header
-run_test_pipe "Malformed header" "Error: Malformed netstring" "malformed" "$HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Malformed header" "Error: Malformed netstring" "malformed" "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 7: Header length too long (exceeds MAX_ARG_LEN of 65536)
-run_test_pipe "Header too long limit" "Error: Argument too long (999999 bytes)" "999999:toobig," "$HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Header too long limit" "Error: Argument too long (999999 bytes)" "999999:toobig," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 8: Header digits exceed buffer (more than 15 digits)
-run_test_pipe "Header digits overflow" "Error: Netstring length too long" "12345678901234567890:toobig," "$HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Header digits overflow" "Error: Netstring length too long" "12345678901234567890:toobig," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 9: Verify no-hang when host command finishes but stdin is still open
 echo -n "Test: No-hang on open stdin... "
@@ -143,7 +145,7 @@ mkfifo "$FIFO"
 WRITER_PID=$!
 
 # Start host-proxy in background reading from FIFO
-$HOST_PROXY /usr/bin/uname < "$FIFO" > "no_hang_out" 2>&1 &
+$LOCAL_HOST_PROXY /usr/bin/uname < "$FIFO" > "no_hang_out" 2>&1 &
 PROXY_PID=$!
 
 # Wait a short moment to see if it exits (uname should be instant)
@@ -183,7 +185,7 @@ LONG_ARG=$(printf 'A%.0s' {1..1000})
 ARGS=$(printf "$LONG_ARG %.0s" {1..1000})
 
 # Run the proxy. It should fail with exit code 1 (from the ssh script), not 141 (SIGPIPE).
-OUT=$($HOST_PROXY /usr/bin/ls $ARGS 2>&1 </dev/null)
+OUT=$($LOCAL_HOST_PROXY /usr/bin/ls $ARGS 2>&1 </dev/null)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 141 ] && [ $EXIT_CODE -ne 0 ]; then
@@ -198,18 +200,18 @@ else
 fi
 
 # Scenario 11: Invalid argc (0 or negative)
-run_test_pipe "Invalid argc (0)" "Error: Invalid target argc (0)" "1:0," "$HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Invalid argc (0)" "Error: Invalid target argc (0)" "1:0," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 12: argc too large
-run_test_pipe "Argc too large" "Error: Invalid target argc (1025)" "4:1025," "$HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Argc too large" "Error: Invalid target argc (1025)" "4:1025," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 13: Partial match in allowlist (prefix/suffix)
 # We want to ensure '/usr/bin/un' doesn't match '/usr/bin/uname'
-run_test_pipe "Allowlist prefix match" "Error: Command '/usr/bin/un' not in allowlist" "1:1,11:/usr/bin/un," "$HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Allowlist prefix match" "Error: Command '/usr/bin/un' not in allowlist" "1:1,11:/usr/bin/un," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 14: Premature EOF in netstring data
 # Header says 1 byte, but we send '1' and then close without the comma.
-run_test_pipe "Premature EOF" "Error: Malformed netstring (expected ',')" "2:1,1:1" "$HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Premature EOF" "Error: Malformed netstring (expected ',')" "2:1,1:1" "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 15: Extremely long allowlist line (testing getline)
 # Use OS max path limit divided into valid NAME_MAX chunks, plus a long comment
@@ -226,7 +228,7 @@ LONG_PATH="${LONG_PATH:0:$TARGET_LEN}"
 
 LONG_COMMENT=$(printf 'C%.0s' {1..2000})
 echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
-run_test_pipe "Long allowlist line match" "execvp: No such file or directory" "1:1,${#LONG_PATH}:$LONG_PATH," "$HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Long allowlist line match" "execvp: No such file or directory" "1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Cleanup Environment
 cd - > /dev/null
