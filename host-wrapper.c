@@ -131,19 +131,8 @@ char* parse_netstring(ParserContext *ctx, size_t *out_len) {
  * Checks if the given command is present and enabled in the allowlist file.
  * The allowlist supports comments (#) and empty lines.
  */
-int is_allowed(const char *cmd, const char *allowlist_path) {
-#ifdef FUZZING
-    (void)allowlist_path;
-    // Fast mock for fuzzing without disk I/O
-    if (strcmp(cmd, "/usr/bin/uname") == 0) return 1;
-    if (strcmp(cmd, "/usr/bin/printf") == 0) return 1;
-    return 0;
-#else
-    FILE *fp = fopen(allowlist_path, "r");
-    if (!fp) {
-        log_error("fopen allowlist: %s\n", strerror(errno));
-        return 0;
-    }
+int is_allowed(const char *cmd, FILE *fp) {
+    if (!fp) return 0;
 
     char *line = NULL;
     size_t linecap = 0;
@@ -181,12 +170,10 @@ int is_allowed(const char *cmd, const char *allowlist_path) {
     }
 
     free(line);
-    fclose(fp);
     return allowed;
-#endif
 }
 
-int run_wrapper(ParserContext *ctx, const char *allowlist_path) {
+int run_wrapper(ParserContext *ctx, FILE *allowlist_fp) {
     int ret = 1;
     char *argc_str = NULL;
     char **target_argv = NULL;
@@ -226,7 +213,7 @@ int run_wrapper(ParserContext *ctx, const char *allowlist_path) {
     target_argv[target_argc] = NULL;
 
     // 3. Validation
-    if (!is_allowed(target_argv[0], allowlist_path)) {
+    if (!is_allowed(target_argv[0], allowlist_fp)) {
         log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
         goto cleanup;
     }
@@ -258,7 +245,15 @@ int main(int argc, char *argv[]) {
     }
     const char *allowlist_path = argv[1];
 
+    FILE *fp = fopen(allowlist_path, "r");
+    if (!fp) {
+        log_error("fopen allowlist: %s\n", strerror(errno));
+        return 1;
+    }
+
     ParserContext ctx = { .fd = STDIN_FILENO, .buf = NULL, .size = 0, .pos = 0 };
-    return run_wrapper(&ctx, allowlist_path);
+    int ret = run_wrapper(&ctx, fp);
+    fclose(fp);
+    return ret;
 }
 #endif
