@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include <libgen.h>
+#include <time.h>
 
 #include <stdarg.h>
 
@@ -24,6 +25,42 @@ void log_error(const char *format, ...) {
     va_end(args);
 #else
     (void)format; // Suppress unused parameter warning
+#endif
+}
+
+/**
+ * Logs an execution event to host-wrapper.log in the allowlist directory.
+ */
+void audit_log(const char *status, int argc, char **argv, const char *allowlist_path) {
+#ifndef FUZZING
+    char log_path[MAX_ARG_LEN];
+    char *path_copy = strdup(allowlist_path);
+    if (!path_copy) return;
+    
+    char *dir = dirname(path_copy);
+    snprintf(log_path, sizeof(log_path), "%s/host-wrapper.log", dir);
+    free(path_copy);
+
+    FILE *fp = fopen(log_path, "a");
+    if (!fp) return;
+
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    char ts[64];
+    if (t) {
+        strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", t);
+    } else {
+        snprintf(ts, sizeof(ts), "unknown time");
+    }
+
+    fprintf(fp, "[%s] [%s]", ts, status);
+    for (int i = 0; i < argc; i++) {
+        fprintf(fp, " %s", argv[i]);
+    }
+    fprintf(fp, "\n");
+    fclose(fp);
+#else
+    (void)status; (void)argc; (void)argv; (void)allowlist_path;
 #endif
 }
 
@@ -216,8 +253,11 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     // 3. Validation
     if (!is_allowed(target_argv[0], allowlist_fp)) {
         log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
+        audit_log("DENIED ", target_argc, target_argv, allowlist_path);
         goto cleanup;
     }
+
+    audit_log("ALLOWED", target_argc, target_argv, allowlist_path);
 
     // 4. Execution
 #ifndef FUZZING
