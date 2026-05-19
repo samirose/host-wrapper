@@ -42,7 +42,24 @@ The `argv` array is serialized as a sequence of [Netstrings](https://cr.yp.to/pr
   5. Because `stdin` was read unbuffered up to the end of the header, the new process natively inherits the remaining `stdin` stream, as well as the active `stdout` and `stderr` streams managed by SSH.
   **Note on Shell Scripts:** Because `execvp` relies on the OS kernel for program loading, target commands can be native binaries or shell scripts. Shell scripts will execute correctly as long as they have a valid shebang (e.g., `#!/bin/sh`) and executable permissions. 
 
-### D. Allowlist Format
+  ### E. Context-Aware Working Directory (CWD)
+  To facilitate multi-project setups and relative paths in scripts, the `host-wrapper` automatically changes its working directory to the folder containing the **allowlist file** before executing any target command.
+
+  This allows a single `host-wrapper` binary to be shared across many projects, with each project providing its own context via its specific `allowlist` file path in `authorized_keys`.
+
+  ## 4. Multi-Project Architecture
+  A single compiled `host-wrapper` binary (e.g., in `~/.ssh/host-wrapper`) can serve multiple isolated containers/projects:
+
+  1. **Host Configuration:** In `~/.ssh/authorized_keys`, assign a unique SSH key to each project. Point each key to the same wrapper, but a different allowlist.
+   ```text
+   # Project A
+   command="~/.ssh/host-wrapper ~/ProjectA/config/allowlist",... ssh-ed25519 KEY_A
+   # Project B
+   command="~/.ssh/host-wrapper ~/ProjectB/config/allowlist",... ssh-ed25519 KEY_B
+   ```
+  2. **Relative Execution:** Any script listed in `~/ProjectA/config/allowlist` will execute with `~/ProjectA/config/` as its starting directory, allowing it to easily reference other files in that project.
+
+  ## 5. Implementation Steps
 The allowlist is a simple text file specifying exact, permitted command paths.
 - One command per line.
 - Empty lines are ignored.

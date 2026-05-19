@@ -230,6 +230,32 @@ LONG_COMMENT=$(printf 'C%.0s' {1..2000})
 echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
 run_test_pipe "Long allowlist line match" "execvp: No such file or directory" "1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
+# Scenario 17: Context-aware Working Directory (chdir)
+# Create a subdirectory, move allowlist there, and verify 'pwd' starts in that directory
+echo -n "Test: Context-aware Working Directory (chdir)... "
+mkdir -p ./subdir
+SUB_ALLOWLIST="./subdir/allowlist"
+cat <<EOF > "$SUB_ALLOWLIST"
+/bin/pwd
+EOF
+
+# Run host-wrapper with the subdirectory allowlist. 
+# It should chdir into ./subdir before executing pwd.
+ACTUAL_PWD=$("$(pwd)/host-wrapper" "$SUB_ALLOWLIST" <<EOF 2>&1
+1:1,8:/bin/pwd,
+EOF
+)
+
+if [[ "$ACTUAL_PWD" == *"/subdir"* ]]; then
+    echo -e "${GREEN}PASS${NC}"
+    pass_count=$((pass_count + 1))
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "  Expected pwd output to contain '/subdir'"
+    echo "  Actual Output: $ACTUAL_PWD"
+    fail_count=$((fail_count + 1))
+fi
+
 # Cleanup Environment
 cd - > /dev/null
 rm -rf "$TEST_DIR"

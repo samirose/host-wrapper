@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <ctype.h>
+#include <libgen.h>
 
 #include <stdarg.h>
 
@@ -173,7 +174,7 @@ int is_allowed(const char *cmd, FILE *fp) {
     return allowed;
 }
 
-int run_wrapper(ParserContext *ctx, FILE *allowlist_fp) {
+int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path) {
     int ret = 1;
     char *argc_str = NULL;
     char **target_argv = NULL;
@@ -220,9 +221,25 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp) {
 
     // 4. Execution
 #ifndef FUZZING
+    // Change working directory to the folder containing the allowlist
+    // before execution, so commands can use relative paths.
+    char *path_copy = strdup(allowlist_path);
+    if (!path_copy) {
+        log_error("strdup: %s\n", strerror(errno));
+        goto cleanup;
+    }
+    char *dir = dirname(path_copy);
+    if (chdir(dir) != 0) {
+        log_error("chdir to %s: %s\n", dir, strerror(errno));
+        free(path_copy);
+        goto cleanup;
+    }
+    free(path_copy);
+
     execvp(target_argv[0], target_argv);
     log_error("execvp: %s\n", strerror(errno));
 #else
+    (void)allowlist_path;
     ret = 0; // Success in fuzzing mode
 #endif
 
@@ -252,7 +269,7 @@ int main(int argc, char *argv[]) {
     }
 
     ParserContext ctx = { .fd = STDIN_FILENO, .buf = NULL, .size = 0, .pos = 0 };
-    int ret = run_wrapper(&ctx, fp);
+    int ret = run_wrapper(&ctx, fp, allowlist_path);
     fclose(fp);
     return ret;
 }

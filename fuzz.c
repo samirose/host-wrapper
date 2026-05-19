@@ -12,7 +12,7 @@ typedef struct {
     size_t pos;
 } ParserContext;
 
-int run_wrapper(ParserContext *ctx, FILE *allowlist_fp);
+int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path);
 
 // libFuzzer entry point
 int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
@@ -49,7 +49,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     };
 
     // Run the parser logic
-    run_wrapper(&ctx, allowlist_fp);
+    run_wrapper(&ctx, allowlist_fp, "/dummy/path/allowlist");
 
     fclose(allowlist_fp);
     return 0;
