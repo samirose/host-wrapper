@@ -3,9 +3,10 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    llm-agents.url = "github:numtide/llm-agents.nix";
   };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, llm-agents }:
     let
       # Supported systems for the container (Linux)
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
@@ -31,8 +32,12 @@
               openssh
               coreutils
               bashInteractive
+
+              # Ai agent(s)
+              llm-agents.packages.${system}.opencode
               
               # Essential tools for the AI agent
+              ripgrep
               git
               curl
               jq
