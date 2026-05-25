@@ -6,6 +6,8 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <signal.h>
+#include <limits.h>
+#include <libgen.h>
 
 /**
  * Robustly writes all data to a file descriptor, handling partial writes
@@ -42,8 +44,9 @@ int write_netstring(int fd, const char *data, size_t len) {
 /**
  * Child process logic: Redirects stdin to the read end of the pipe
  * and executes the SSH connection script.
+ * The script is expected to be in the same directory as the proxy binary.
  */
-void execute_ssh_child(int pipe_read_fd) {
+void execute_ssh_child(int pipe_read_fd, const char *proxy_dir) {
     // Redirect stdin from the pipe
     if (dup2(pipe_read_fd, 0) == -1) {
         perror("dup2");
@@ -51,13 +54,17 @@ void execute_ssh_child(int pipe_read_fd) {
     }
     close(pipe_read_fd);
 
+    // Construct the path to the connection script: [proxy_dir]/host-proxy-ssh.sh
+    char script_path[PATH_MAX];
+    snprintf(script_path, sizeof(script_path), "%s/host-proxy-ssh.sh", proxy_dir);
+
     // Execute the connection script.
     char *script_argv[] = {
-        "./host-proxy-ssh.sh", NULL
+        script_path, NULL
     };
 
     execvp(script_argv[0], script_argv);
-    perror("execvp host-proxy-ssh.sh");
+    fprintf(stderr, "execvp failed for %s: %s\n", script_path, strerror(errno));
     exit(1);
 }
 
@@ -140,31 +147,50 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
 }
 
 int main(int argc, char *argv[]) {
+    char *proxy_dir = NULL;
+    char *argv0_copy = NULL;
+    int result = 1;
+
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <command> [args...]\n", argv[0]);
         return 1;
     }
 
+    // Determine the directory of the host-proxy binary
+    argv0_copy = strdup(argv[0]);
+    if (!argv0_copy) {
+        perror("strdup");
+        goto cleanup;
+    }
+    proxy_dir = strdup(dirname(argv0_copy));
+    if (!proxy_dir) {
+        perror("strdup proxy_dir");
+        goto cleanup;
+    }
+
     int pipe_fds[2];
     if (pipe(pipe_fds) == -1) {
         perror("pipe");
-        return 1;
+        goto cleanup;
     }
 
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
-        return 1;
+        goto cleanup;
     }
 
     if (pid == 0) {
         close(pipe_fds[1]); // Close write end in child
-        execute_ssh_child(pipe_fds[0]);
+        execute_ssh_child(pipe_fds[0], proxy_dir);
         // execute_ssh_child never returns
     } else {
         close(pipe_fds[0]); // Close read end in parent
-        return execute_proxy_parent(pipe_fds[1], pid, argc, argv);
+        result = execute_proxy_parent(pipe_fds[1], pid, argc, argv);
     }
 
-    return 0; // Unreachable
+cleanup:
+    free(argv0_copy);
+    free(proxy_dir);
+    return result;
 }
