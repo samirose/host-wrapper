@@ -36,7 +36,8 @@ echo "Generating SSH connection script at $SSH_CONNECT_SCRIPT..."
 cat <<EOF > "$SSH_CONNECT_SCRIPT"
 #!/bin/sh
 # This script is invoked by host-proxy to establish the SSH tunnel.
-# Connects to the host using the Apple Container DNS mapping.
+# Change to the script's directory to ensure relative paths work.
+cd "\$(dirname "\$0")" || exit 1
 exec ssh -q -T -o StrictHostKeyChecking=no -i "$SSH_KEY_FILE" "$HOST_WRAPPER_USER@$HOST_DNS_NAME" host-wrapper
 EOF
 chmod +x "$SSH_CONNECT_SCRIPT"
