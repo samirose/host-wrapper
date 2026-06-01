@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#define _DARWIN_C_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,10 @@
 #include <ctype.h>
 #include <libgen.h>
 #include <time.h>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <util.h>
+#include <poll.h>
 
 #include <stdarg.h>
 
@@ -276,8 +281,63 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     }
     free(path_copy);
 
-    execvp(target_argv[0], target_argv);
-    log_error("execvp: %s\n", strerror(errno));
+    int master, slave;
+    if (openpty(&master, &slave, NULL, NULL, NULL) == -1) {
+        log_error("openpty: %s\n", strerror(errno));
+        goto cleanup;
+    }
+
+    // Set the PTY to raw mode to ensure transparent byte-stream output
+    // (no \n -> \r\n conversion)
+    struct termios ios;
+    if (tcgetattr(slave, &ios) == 0) {
+        cfmakeraw(&ios);
+        tcsetattr(slave, TCSANOW, &ios);
+    }
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        log_error("fork: %s\n", strerror(errno));
+        close(master);
+        close(slave);
+        goto cleanup;
+    }
+
+    if (pid == 0) {
+        // Child:
+        // Redirect stdout and stderr to the PTY slave
+        dup2(slave, STDOUT_FILENO);
+        dup2(slave, STDERR_FILENO);
+        
+        // Stdin is inherited from the parent (the SSH tunnel pipe)
+        // so it will receive EOF naturally.
+
+        close(master);
+        close(slave);
+
+        execvp(target_argv[0], target_argv);
+        log_error("execvp: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    // Parent:
+    close(slave);
+
+    // Pump output from the PTY master to our real stdout
+    unsigned char buf[4096];
+    while (1) {
+        ssize_t n = read(master, buf, sizeof(buf));
+        if (n <= 0) break; // Child finished or error
+        if (write(STDOUT_FILENO, buf, (size_t)n) <= 0) break;
+    }
+
+    int status;
+    waitpid(pid, &status, 0);
+    close(master);
+
+    if (WIFEXITED(status)) {
+        ret = WEXITSTATUS(status);
+    }
 #else
     (void)allowlist_path;
     ret = 0; // Success in fuzzing mode
