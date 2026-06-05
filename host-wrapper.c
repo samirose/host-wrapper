@@ -280,6 +280,26 @@ cleanup:
     return target_argv;
 }
 
+/**
+ * Changes the current working directory to the directory containing the allowlist file.
+ * Returns 0 on success, -1 on error.
+ */
+int change_to_allowlist_dir(const char *allowlist_path) {
+    char *path_copy = strdup(allowlist_path);
+    if (!path_copy) {
+        log_error("strdup: %s\n", strerror(errno));
+        return -1;
+    }
+    char *dir = dirname(path_copy);
+    if (chdir(dir) != 0) {
+        log_error("chdir to %s: %s\n", dir, strerror(errno));
+        free(path_copy);
+        return -1;
+    }
+    free(path_copy);
+    return 0;
+}
+
 int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path) {
     int ret = 1;
     char **target_argv = NULL;
@@ -302,18 +322,9 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
 #ifndef FUZZING
     // Change working directory to the folder containing the allowlist
     // before execution, so commands can use relative paths.
-    char *path_copy = strdup(allowlist_path);
-    if (!path_copy) {
-        log_error("strdup: %s\n", strerror(errno));
+    if (change_to_allowlist_dir(allowlist_path) != 0) {
         goto cleanup;
     }
-    char *dir = dirname(path_copy);
-    if (chdir(dir) != 0) {
-        log_error("chdir to %s: %s\n", dir, strerror(errno));
-        free(path_copy);
-        goto cleanup;
-    }
-    free(path_copy);
 
     int master_out = -1, slave_out = -1;
     int master_err = -1, slave_err = -1;
