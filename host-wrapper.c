@@ -216,16 +216,30 @@ int is_allowed(const char *cmd, FILE *fp) {
     return allowed;
 }
 
-int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path) {
-    int ret = 1;
+/**
+ * Frees the reconstructed argv array and its elements.
+ */
+void free_target_args(char **argv, int argc) {
+    if (!argv) return;
+    for (int i = 0; i < argc; i++) {
+        if (argv[i]) free(argv[i]);
+    }
+    free(argv);
+}
+
+/**
+ * Parses the netstring header to reconstruct the target argc and argv.
+ * Returns the argv array on success, or NULL on error.
+ */
+char** parse_target_args(ParserContext *ctx, int *out_argc) {
     char *argc_str = NULL;
     char **target_argv = NULL;
     int target_argc = 0;
 
-    // 1. Parse target argc
+    // 1. Parse target argc string from netstring
     size_t dummy_len;
     argc_str = parse_netstring(ctx, &dummy_len);
-    if (!argc_str) goto cleanup;
+    if (!argc_str) return NULL;
 
     char *endptr;
     errno = 0;
@@ -251,9 +265,29 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
 
     for (int i = 0; i < target_argc; i++) {
         target_argv[i] = parse_netstring(ctx, NULL);
-        if (!target_argv[i]) goto cleanup;
+        if (!target_argv[i]) {
+            free_target_args(target_argv, i);
+            target_argv = NULL;
+            goto cleanup;
+        }
     }
     target_argv[target_argc] = NULL;
+
+    if (out_argc) *out_argc = target_argc;
+
+cleanup:
+    free(argc_str);
+    return target_argv;
+}
+
+int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path) {
+    int ret = 1;
+    char **target_argv = NULL;
+    int target_argc = 0;
+
+    // 1. Parse target argc and argv
+    target_argv = parse_target_args(ctx, &target_argc);
+    if (!target_argv) return 1;
 
     // 3. Validation
     if (!is_allowed(target_argv[0], allowlist_fp)) {
@@ -393,13 +427,7 @@ execution_cleanup:
 #endif
 
 cleanup:
-    if (argc_str) free(argc_str);
-    if (target_argv) {
-        for (int i = 0; i < target_argc; i++) {
-            if (target_argv[i]) free(target_argv[i]);
-        }
-        free(target_argv);
-    }
+    free_target_args(target_argv, target_argc);
     return ret;
 }
 
