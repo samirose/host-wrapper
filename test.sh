@@ -256,6 +256,38 @@ else
     fail_count=$((fail_count + 1))
 fi
 
+# Scenario 18: Verify stdout/stderr separation
+echo -n "Test: Stdout/Stderr separation... "
+# Restore the real ssh shim
+cat <<EOF > "host-proxy-ssh.sh"
+#!/bin/sh
+exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+EOF
+chmod +x "host-proxy-ssh.sh"
+
+# Add /bin/sh to allowlist for this test
+echo "/bin/sh" >> "$ALLOWLIST"
+
+OUT_FILE="./stdout_capture"
+ERR_FILE="./stderr_capture"
+
+# Run a command that writes to both streams
+# Note: we use /bin/sh -c '...' to produce distinct output
+"$LOCAL_HOST_PROXY" /bin/sh -c 'echo "OUT_DATA"; echo "ERR_DATA" >&2' > "$OUT_FILE" 2> "$ERR_FILE"
+
+OUT_VAL=$(cat "$OUT_FILE")
+ERR_VAL=$(cat "$ERR_FILE")
+
+if [ "$OUT_VAL" == "OUT_DATA" ] && [ "$ERR_VAL" == "ERR_DATA" ]; then
+    echo -e "${GREEN}PASS${NC}"
+    pass_count=$((pass_count + 1))
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "  Expected stdout: OUT_DATA, Actual: $OUT_VAL"
+    echo "  Expected stderr: ERR_DATA, Actual: $ERR_VAL"
+    fail_count=$((fail_count + 1))
+fi
+
 # Cleanup Environment
 cd - > /dev/null
 rm -rf "$TEST_DIR"

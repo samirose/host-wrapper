@@ -281,39 +281,45 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     }
     free(path_copy);
 
-    int master, slave;
-    if (openpty(&master, &slave, NULL, NULL, NULL) == -1) {
-        log_error("openpty: %s\n", strerror(errno));
-        goto cleanup;
+    int master_out = -1, slave_out = -1;
+    int master_err = -1, slave_err = -1;
+    int status;
+    pid_t pid = -1;
+
+    if (openpty(&master_out, &slave_out, NULL, NULL, NULL) == -1) {
+        log_error("openpty stdout: %s\n", strerror(errno));
+        goto execution_cleanup;
+    }
+    if (openpty(&master_err, &slave_err, NULL, NULL, NULL) == -1) {
+        log_error("openpty stderr: %s\n", strerror(errno));
+        goto execution_cleanup;
     }
 
-    // Set the PTY to raw mode to ensure transparent byte-stream output
-    // (no \n -> \r\n conversion)
+    // Set both PTYs to raw mode
     struct termios ios;
-    if (tcgetattr(slave, &ios) == 0) {
+    if (tcgetattr(slave_out, &ios) == 0) {
         cfmakeraw(&ios);
-        tcsetattr(slave, TCSANOW, &ios);
+        tcsetattr(slave_out, TCSANOW, &ios);
+    }
+    if (tcgetattr(slave_err, &ios) == 0) {
+        cfmakeraw(&ios);
+        tcsetattr(slave_err, TCSANOW, &ios);
     }
 
-    pid_t pid = fork();
+    pid = fork();
     if (pid < 0) {
         log_error("fork: %s\n", strerror(errno));
-        close(master);
-        close(slave);
-        goto cleanup;
+        goto execution_cleanup;
     }
 
     if (pid == 0) {
         // Child:
-        // Redirect stdout and stderr to the PTY slave
-        dup2(slave, STDOUT_FILENO);
-        dup2(slave, STDERR_FILENO);
-        
-        // Stdin is inherited from the parent (the SSH tunnel pipe)
-        // so it will receive EOF naturally.
+        dup2(slave_out, STDOUT_FILENO);
+        dup2(slave_err, STDERR_FILENO);
+        // Stdin stays as the inherited pipe
 
-        close(master);
-        close(slave);
+        close(master_out); close(slave_out);
+        close(master_err); close(slave_err);
 
         execvp(target_argv[0], target_argv);
         log_error("execvp: %s\n", strerror(errno));
@@ -321,23 +327,66 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     }
 
     // Parent:
-    close(slave);
+    close(slave_out); slave_out = -1;
+    close(slave_err); slave_err = -1;
 
-    // Pump output from the PTY master to our real stdout
+    struct pollfd fds[2];
+    fds[0].fd = master_out;
+    fds[0].events = POLLIN;
+    fds[1].fd = master_err;
+    fds[1].events = POLLIN;
+
     unsigned char buf[4096];
-    while (1) {
-        ssize_t n = read(master, buf, sizeof(buf));
-        if (n <= 0) break; // Child finished or error
-        if (write(STDOUT_FILENO, buf, (size_t)n) <= 0) break;
+    int open_streams = 2;
+
+    while (open_streams > 0) {
+        if (poll(fds, 2, -1) < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+
+        // PTY Stdout -> Real Stdout
+        if (fds[0].fd != -1 && (fds[0].revents & POLLIN)) {
+            ssize_t n = read(master_out, buf, sizeof(buf));
+            if (n > 0) {
+                (void)write(STDOUT_FILENO, buf, (size_t)n);
+            } else {
+                fds[0].fd = -1;
+                open_streams--;
+            }
+        }
+
+        // PTY Stderr -> Real Stderr
+        if (fds[1].fd != -1 && (fds[1].revents & POLLIN)) {
+            ssize_t n = read(master_err, buf, sizeof(buf));
+            if (n > 0) {
+                (void)write(STDERR_FILENO, buf, (size_t)n);
+            } else {
+                fds[1].fd = -1;
+                open_streams--;
+            }
+        }
+
+        if (fds[0].fd != -1 && (fds[0].revents & (POLLHUP | POLLERR))) {
+            fds[0].fd = -1;
+            open_streams--;
+        }
+        if (fds[1].fd != -1 && (fds[1].revents & (POLLHUP | POLLERR))) {
+            fds[1].fd = -1;
+            open_streams--;
+        }
     }
 
-    int status;
     waitpid(pid, &status, 0);
-    close(master);
-
     if (WIFEXITED(status)) {
         ret = WEXITSTATUS(status);
     }
+
+execution_cleanup:
+    if (master_out != -1) close(master_out);
+    if (slave_out != -1) close(slave_out);
+    if (master_err != -1) close(master_err);
+    if (slave_err != -1) close(slave_err);
 #else
     (void)allowlist_path;
     ret = 0; // Success in fuzzing mode
