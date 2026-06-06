@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <limits.h>
 #include <libgen.h>
+#include <sys/ioctl.h>
 
 /**
  * Robustly writes all data to a file descriptor, handling partial writes
@@ -93,6 +94,23 @@ void execute_stdin_pump(int pipe_write_fd) {
 int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *argv[]) {
     // Ignore SIGPIPE so processes can handle broken pipes via return values
     signal(SIGPIPE, SIG_IGN);
+
+    // Get terminal size of the invoking environment
+    struct winsize ws;
+    int cols = 80;
+    int rows = 24;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
+        cols = ws.ws_col;
+        rows = ws.ws_row;
+    }
+    char winsize_str[32];
+    snprintf(winsize_str, sizeof(winsize_str), "%d,%d", cols, rows);
+    if (write_netstring(pipe_write_fd, winsize_str, strlen(winsize_str)) == -1) {
+        // Pipe is likely broken already
+        close(pipe_write_fd);
+        waitpid(child_pid, NULL, 0);
+        return 1;
+    }
 
     // 1. Write target argc (argc-1 because argv[0] is host-proxy)
     char argc_str[16];

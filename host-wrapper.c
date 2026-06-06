@@ -305,6 +305,33 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     char **target_argv = NULL;
     int target_argc = 0;
 
+    // Parse terminal window size netstring (format: "cols,rows")
+    char *winsize_str = parse_netstring(ctx, NULL);
+    int cols = 80;
+    int rows = 24;
+    if (winsize_str) {
+        char *comma = strchr(winsize_str, ',');
+        if (comma) {
+            *comma = '\0';
+            char *endptr1;
+            char *endptr2;
+            long parsed_cols = strtol(winsize_str, &endptr1, 10);
+            long parsed_rows = strtol(comma + 1, &endptr2, 10);
+            if (endptr1 != winsize_str && *endptr1 == '\0' &&
+                endptr2 != (comma + 1) && *endptr2 == '\0' &&
+                parsed_cols > 0 && parsed_rows > 0) {
+                cols = (int)parsed_cols;
+                rows = (int)parsed_rows;
+            }
+        }
+        free(winsize_str);
+    }
+
+#ifdef FUZZING
+    (void)cols;
+    (void)rows;
+#endif
+
     // 1. Parse target argc and argv
     target_argv = parse_target_args(ctx, &target_argc);
     if (!target_argv) return 1;
@@ -332,8 +359,8 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     pid_t pid = -1;
 
     struct winsize ws;
-    ws.ws_row = 24;
-    ws.ws_col = 80;
+    ws.ws_row = (unsigned short)rows;
+    ws.ws_col = (unsigned short)cols;
     ws.ws_xpixel = 0;
     ws.ws_ypixel = 0;
 

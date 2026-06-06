@@ -200,14 +200,14 @@ else
 fi
 
 # Scenario 11: Invalid argc (0 or negative)
-run_test_pipe "Invalid argc (0)" "Error: Invalid target argc (0)" "1:0," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Invalid argc (0)" "Error: Invalid target argc (0)" "5:80,24,1:0," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 12: argc too large
-run_test_pipe "Argc too large" "Error: Invalid target argc (1025)" "4:1025," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Argc too large" "Error: Invalid target argc (1025)" "5:80,24,4:1025," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 13: Partial match in allowlist (prefix/suffix)
 # We want to ensure '/usr/bin/un' doesn't match '/usr/bin/uname'
-run_test_pipe "Allowlist prefix match" "Error: Command '/usr/bin/un' not in allowlist" "1:1,11:/usr/bin/un," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Allowlist prefix match" "Error: Command '/usr/bin/un' not in allowlist" "5:80,24,1:1,11:/usr/bin/un," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 14: Premature EOF in netstring data
 # Header says 1 byte, but we send '1' and then close without the comma.
@@ -228,7 +228,7 @@ LONG_PATH="${LONG_PATH:0:$TARGET_LEN}"
 
 LONG_COMMENT=$(printf 'C%.0s' {1..2000})
 echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
-run_test_pipe "Long allowlist line match" "execvp: No such file or directory" "1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_pipe "Long allowlist line match" "execvp: No such file or directory" "5:80,24,1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 17: Context-aware Working Directory (chdir)
 # Create a subdirectory, move allowlist there, and verify 'pwd' starts in that directory
@@ -242,7 +242,7 @@ EOF
 # Run host-wrapper with the subdirectory allowlist. 
 # It should chdir into ./subdir before executing pwd.
 ACTUAL_PWD=$("$(pwd)/host-wrapper" "$SUB_ALLOWLIST" <<EOF 2>&1
-1:1,8:/bin/pwd,
+5:80,24,1:1,8:/bin/pwd,
 EOF
 )
 
