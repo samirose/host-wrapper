@@ -331,11 +331,17 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     int status;
     pid_t pid = -1;
 
-    if (openpty(&master_out, &slave_out, NULL, NULL, NULL) == -1) {
+    struct winsize ws;
+    ws.ws_row = 24;
+    ws.ws_col = 80;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+
+    if (openpty(&master_out, &slave_out, NULL, NULL, &ws) == -1) {
         log_error("openpty stdout: %s\n", strerror(errno));
         goto execution_cleanup;
     }
-    if (openpty(&master_err, &slave_err, NULL, NULL, NULL) == -1) {
+    if (openpty(&master_err, &slave_err, NULL, NULL, &ws) == -1) {
         log_error("openpty stderr: %s\n", strerror(errno));
         goto execution_cleanup;
     }
