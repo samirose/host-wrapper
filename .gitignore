@@ -6,6 +6,7 @@ host-wrapper-fuzzer
 host-proxy-ssh.sh
 ssh/
 .cache/
+host-wrapper.log
 
 # Fuzzer artifacts
 crash-*
