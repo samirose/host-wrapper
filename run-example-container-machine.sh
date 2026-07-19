@@ -47,11 +47,19 @@ if [ ! -f "$HOME/.ssh/authorized_keys" ]; then
     chmod 600 "$HOME/.ssh/authorized_keys"
 fi
 
-if ! grep -q "container-machine.key" "$HOME/.ssh/authorized_keys"; then
+if grep -q "container-machine.key" "$HOME/.ssh/authorized_keys"; then
+    if grep -Fq "$AUTH_LINE" "$HOME/.ssh/authorized_keys"; then
+        echo "[+] Restricted key with correct path already configured in authorized_keys."
+    else
+        echo "[*] Project path or key configuration changed. Updating authorized_keys..."
+        grep -v "container-machine.key" "$HOME/.ssh/authorized_keys" > "$HOME/.ssh/authorized_keys.tmp"
+        echo "$AUTH_LINE" >> "$HOME/.ssh/authorized_keys.tmp"
+        mv "$HOME/.ssh/authorized_keys.tmp" "$HOME/.ssh/authorized_keys"
+        chmod 600 "$HOME/.ssh/authorized_keys"
+    fi
+else
     echo "[*] Appending the restricted key to ~/.ssh/authorized_keys..."
     echo "$AUTH_LINE" >> "$HOME/.ssh/authorized_keys"
-else
-    echo "[+] Restricted key already configured in authorized_keys."
 fi
 
 # 4. Provision or Start the Container Machine
