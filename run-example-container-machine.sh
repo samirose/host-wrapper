@@ -70,7 +70,9 @@ if ! container machine list | grep -q "$CONTAINER_MACHINE_NAME"; then
     echo "[*] Creating new secure machine with --home-mount none (disabling full home directory access)..."
     container machine create "$IMAGE" \
       --name "$CONTAINER_MACHINE_NAME" \
-      --home-mount none
+      --home-mount none \
+      --cpus 2 \
+      --memory 1G
 
     echo "[*] Waiting for Container Machine guest agent to become ready..."
     READY=false
@@ -96,6 +98,7 @@ if ! container machine list | grep -q "$CONTAINER_MACHINE_NAME"; then
     container machine run -n "$CONTAINER_MACHINE_NAME" --root apk add --no-cache build-base openssh-client </dev/null
 else
     echo "[+] Container Machine '$CONTAINER_MACHINE_NAME' already exists. Booting/starting if needed..."
+    container machine set -n "$CONTAINER_MACHINE_NAME" cpus=2 memory=1G >/dev/null 2>&1
     # This automatically boots the machine if currently stopped
     container machine run -n "$CONTAINER_MACHINE_NAME" true </dev/null >/dev/null 2>&1
 fi
