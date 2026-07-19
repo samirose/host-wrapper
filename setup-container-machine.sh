@@ -5,7 +5,7 @@ ALLOWLIST_DIR="./config"
 ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
 SSH_KEY_DIR="./ssh"
 SSH_KEY_FILE="$SSH_KEY_DIR/id_ed25519_machine"
-CONTAINER_MACHINE_NAME="secure-dev"
+CONTAINER_MACHINE_NAME="example-container-machine"
 
 # Ensure directories exist
 mkdir -p "$ALLOWLIST_DIR"
@@ -29,7 +29,7 @@ fi
 # 2. Generate restricted SSH key pair for the Container Machine (if not exists)
 if [ ! -f "$SSH_KEY_FILE" ]; then
     echo "[*] Generating dedicated SSH key at $SSH_KEY_FILE..."
-    ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "container-machine.key"
+    ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "example-container-machine.key"
     # Ensure correct permissions
     chmod 600 "$SSH_KEY_FILE"
 fi

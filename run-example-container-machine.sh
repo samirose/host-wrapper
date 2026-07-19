@@ -5,7 +5,7 @@
 # builds the binaries, and runs a comprehensive end-to-end integration test suite
 # with file system isolation (no volume sharing or home mounts).
 
-CONTAINER_MACHINE_NAME="secure-dev"
+CONTAINER_MACHINE_NAME="example-container-machine"
 IMAGE="alpine:latest"
 PROJECT_DIR=$(pwd)
 ALLOWLIST_FILE="config/allowlist"
@@ -47,12 +47,12 @@ if [ ! -f "$HOME/.ssh/authorized_keys" ]; then
     chmod 600 "$HOME/.ssh/authorized_keys"
 fi
 
-if grep -q "container-machine.key" "$HOME/.ssh/authorized_keys"; then
+if grep -q "example-container-machine.key" "$HOME/.ssh/authorized_keys"; then
     if grep -Fq "$AUTH_LINE" "$HOME/.ssh/authorized_keys"; then
         echo "[+] Restricted key with correct path already configured in authorized_keys."
     else
         echo "[*] Project path or key configuration changed. Updating authorized_keys..."
-        grep -v "container-machine.key" "$HOME/.ssh/authorized_keys" > "$HOME/.ssh/authorized_keys.tmp"
+        grep -v "example-container-machine.key" "$HOME/.ssh/authorized_keys" > "$HOME/.ssh/authorized_keys.tmp"
         echo "$AUTH_LINE" >> "$HOME/.ssh/authorized_keys.tmp"
         mv "$HOME/.ssh/authorized_keys.tmp" "$HOME/.ssh/authorized_keys"
         chmod 600 "$HOME/.ssh/authorized_keys"
