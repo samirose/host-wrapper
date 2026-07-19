@@ -18,9 +18,9 @@ if [[ "$1" == "--non-interactive" ]]; then
     NON_INTERACTIVE=true
 fi
 
-echo "========================================================"
-echo "Starting Apple Container Machine Secure Automation Suite"
-echo "========================================================"
+echo "======================================================="
+echo "Setting up example host-wrapper Apple Container Machine"
+echo "======================================================="
 
 # 1. Ensure basic keys and scripts are initialized
 if [ ! -f "$SSH_KEY_FILE" ] || [ ! -f "./host-proxy-ssh.sh" ]; then
@@ -37,7 +37,7 @@ cp host-wrapper "$GLOBAL_WRAPPER_PATH"
 chmod 755 "$GLOBAL_WRAPPER_PATH"
 
 # 3. Safely update macOS authorized_keys with the restricted public key
-echo "[*] Configuring macOS SSH authorized_keys..."
+echo "[*] Setting up host-wrapper to macOS host SSH authorized_keys..."
 PUB_KEY_CONTENT=$(cat "${SSH_KEY_FILE}.pub")
 ABS_ALLOWLIST_PATH="$PROJECT_DIR/$ALLOWLIST_FILE"
 AUTH_LINE="command=\"$GLOBAL_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
@@ -67,19 +67,19 @@ echo "[*] Provisioning Container Machine '$CONTAINER_MACHINE_NAME'..."
 container system start 2>/dev/null
 
 if ! container machine list | grep -q "$CONTAINER_MACHINE_NAME"; then
-    echo "[*] Creating new secure machine with --home-mount none (disabling full home directory access)..."
+    echo "[*] Creating Container Machine '$CONTAINER_MACHINE_NAME'..."
     container machine create "$IMAGE" \
       --name "$CONTAINER_MACHINE_NAME" \
       --home-mount none \
       --cpus 2 \
       --memory 1G
 
-    echo "[*] Waiting for Container Machine guest agent to become ready..."
+    echo "[*] Waiting for Container Machine to become ready..."
     READY=false
     for i in {1..30}; do
         if container machine run -n "$CONTAINER_MACHINE_NAME" true </dev/null >/dev/null 2>&1; then
             echo ""
-            echo "[+] Guest agent is ready and accepting commands!"
+            echo "[+] Container Machine is ready and accepting commands."
             READY=true
             break
         fi
@@ -89,7 +89,7 @@ if ! container machine list | grep -q "$CONTAINER_MACHINE_NAME"; then
 
     if [ "$READY" = false ]; then
         echo ""
-        echo "[-] Guest agent failed to initialize in a timely manner. Aborting."
+        echo "[-] Container Machine failed to initialize in a timely manner. Aborting."
         exit 1
     fi
 
@@ -104,7 +104,7 @@ else
 fi
 
 # 6. Replicate project code and SSH credentials into the isolated VM using standard input redirection (no volume mounts!)
-echo "[*] Replicating project files securely into the VM via stdin piping..."
+echo "[*] Provisioning host-proxy files to Container Machine via stdin piping..."
 container machine run -n "$CONTAINER_MACHINE_NAME" mkdir -p /tmp/app/ssh /tmp/app/config </dev/null
 
 # Copy host-proxy.c (Passing -i to ensure stream doesn't close prematurely)
@@ -131,14 +131,14 @@ EOF
 container machine run -n "$CONTAINER_MACHINE_NAME" chmod +x /tmp/app/host-proxy-ssh.sh </dev/null
 
 # 7. Compile host-proxy inside the Container Machine /tmp directory using Makefile
-echo "[*] Compiling host-proxy inside the Container Machine guest using Makefile..."
+echo "[*] Compiling host-proxy inside the Container Machine"
 container machine run -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- make host-proxy </dev/null
 
 # 8. Run End-to-End Integration Tests
 echo ""
-echo "========================================================"
-echo "Running End-to-End Secure Guest-to-Host Integration Tests"
-echo "========================================================"
+echo "=================================================="
+echo "Running End-to-End Guest-to-Host Integration Tests"
+echo "=================================================="
 
 pass_count=0
 fail_count=0
@@ -235,21 +235,21 @@ echo "Results: $pass_count passed, $fail_count failed"
 echo "----------------------------------------"
 
 # Open interactive shell if all passed, or if the user asks
-if [ $fail_count -eq 0 ]; then
-    echo "[+] All integration tests passed successfully!"
-    if [ "$NON_INTERACTIVE" = true ]; then
-        echo "[+] Non-interactive mode requested. Exiting successfully."
-        echo "[*] Stopping Container Machine '$CONTAINER_MACHINE_NAME'..."
-        container machine stop "$CONTAINER_MACHINE_NAME" >/dev/null 2>&1
-        exit 0
-    fi
-    echo "[*] Entering interactive shell in secure Container Machine..."
+if [ $fail_count -ne 0 ]; then
+    echo "[-] Integration testing encountered failures. Please resolve errors before continuing."
+    exit 1
+fi
+echo "[+] All integration tests passed successfully!"
+
+if [ "$NON_INTERACTIVE" = true ]; then
+    echo "[+] Non-interactive mode requested. Exiting successfully."
+    echo "[*] Stopping Container Machine '$CONTAINER_MACHINE_NAME'..."
+    container machine stop "$CONTAINER_MACHINE_NAME" >/dev/null 2>&1
+else
+    echo "[*] Entering interactive shell in the Container Machine..."
     echo "(Type 'exit' to escape, your files are inside /tmp/app/)"
     container machine run -i -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- sh -i
 
     echo "[*] Stopping Container Machine '$CONTAINER_MACHINE_NAME'..."
     container machine stop "$CONTAINER_MACHINE_NAME"
-else
-    echo "[-] Integration testing encountered failures. Please resolve errors before using."
-    exit 1
 fi
