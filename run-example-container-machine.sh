@@ -239,11 +239,16 @@ if [ $fail_count -eq 0 ]; then
     echo "[+] All integration tests passed successfully!"
     if [ "$NON_INTERACTIVE" = true ]; then
         echo "[+] Non-interactive mode requested. Exiting successfully."
+        echo "[*] Stopping Container Machine '$CONTAINER_MACHINE_NAME'..."
+        container machine stop "$CONTAINER_MACHINE_NAME" >/dev/null 2>&1
         exit 0
     fi
     echo "[*] Entering interactive shell in secure Container Machine..."
     echo "(Type 'exit' to escape, your files are inside /tmp/app/)"
     container machine run -i -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- sh -i
+
+    echo "[*] Stopping Container Machine '$CONTAINER_MACHINE_NAME'..."
+    container machine stop "$CONTAINER_MACHINE_NAME"
 else
     echo "[-] Integration testing encountered failures. Please resolve errors before using."
     exit 1
