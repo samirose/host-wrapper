@@ -27,7 +27,7 @@ fi
 # 3. Generate SSH Key Pair (if not exists)
 if [ ! -f "$SSH_KEY_FILE" ]; then
     echo "Generating SSH key for container at $SSH_KEY_FILE..."
-    ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "agent-harness.key"
+    ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "host-wrapper.key"
 fi
 
 # 4. Generate the SSH Connection Script

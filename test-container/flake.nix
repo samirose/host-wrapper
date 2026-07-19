@@ -1,5 +1,5 @@
 {
-  description = "Agent Harness Test Container Environment";
+  description = "Host Wrapper Test Container Environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -21,7 +21,7 @@
         in
         {
           ai = pkgs.mkShell {
-            name = "agent-harness-ai-shell";
+            name = "host-wrapper-shell";
             
             buildInputs = with pkgs; [
               # Build tools
@@ -54,8 +54,8 @@
             ];
 
             shellHook = ''
-              export PS1="\[\e[1;32m\][agent-harness-ai] \[\e[m\]\w \$ "
-              echo "--- Agent Harness AI Development Shell ---"
+              export PS1="\[\e[1;32m\][host-wrapper] \[\e[m\]\w \$ "
+              echo "--- Host Wrapper Development Shell ---"
               echo "System: ${system}"
               echo "Tools loaded: gcc, gnumake, ssh, git, curl, jq, python3, net-utils, procps"
               echo "-------------------------------------------"
