@@ -12,6 +12,7 @@
 #include <termios.h>
 #include <util.h>
 #include <poll.h>
+#include <fcntl.h>
 
 #include <stdarg.h>
 
@@ -174,13 +175,22 @@ char* parse_netstring(ParserContext *ctx, size_t *out_len) {
  * Checks if the given command is present and enabled in the allowlist file.
  * The allowlist supports comments (#) and empty lines.
  */
-int is_allowed(const char *cmd, FILE *fp) {
-    if (!fp) return 0;
+typedef struct {
+    int allowed;
+    int has_stdin;
+} AllowlistResult;
+
+/**
+ * Checks if the given command is present and enabled in the allowlist file.
+ * The allowlist supports comments (#) and empty lines.
+ */
+AllowlistResult check_allowed(const char *cmd, FILE *fp) {
+    AllowlistResult res = { .allowed = 0, .has_stdin = 0 };
+    if (!fp) return res;
 
     char *line = NULL;
     size_t linecap = 0;
     ssize_t linelen;
-    int allowed = 0;
 
     while ((linelen = getline(&line, &linecap, fp)) > 0) {
         // Strip newline
@@ -206,14 +216,31 @@ int is_allowed(const char *cmd, FILE *fp) {
             end--;
         }
 
-        if (strcmp(cmd, p) == 0) {
-            allowed = 1;
+        // Tokenize p to check command and options
+        char *cmd_token = NULL;
+        int line_has_stdin = 0;
+
+        char *saveptr;
+        char *token = strtok_r(p, " \t\r\n", &saveptr);
+        if (token) {
+            cmd_token = token;
+            // Now look for options
+            while ((token = strtok_r(NULL, " \t\r\n", &saveptr)) != NULL) {
+                if (strcmp(token, "+stdin") == 0) {
+                    line_has_stdin = 1;
+                }
+            }
+        }
+
+        if (cmd_token && strcmp(cmd, cmd_token) == 0) {
+            res.allowed = 1;
+            res.has_stdin = line_has_stdin;
             break;
         }
     }
 
     free(line);
-    return allowed;
+    return res;
 }
 
 /**
@@ -337,7 +364,8 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     if (!target_argv) return 1;
 
     // 3. Validation
-    if (!is_allowed(target_argv[0], allowlist_fp)) {
+    AllowlistResult allow_res = check_allowed(target_argv[0], allowlist_fp);
+    if (!allow_res.allowed) {
         log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
         audit_log("DENIED ", target_argc, target_argv, allowlist_path);
         goto cleanup;
@@ -394,7 +422,17 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
         // Child:
         dup2(slave_out, STDOUT_FILENO);
         dup2(slave_err, STDERR_FILENO);
-        // Stdin stays as the inherited pipe
+        
+        // Handle stdin option
+        if (!allow_res.has_stdin) {
+            int fd_null = open("/dev/null", O_RDONLY);
+            if (fd_null >= 0) {
+                dup2(fd_null, STDIN_FILENO);
+                close(fd_null);
+            } else {
+                close(STDIN_FILENO);
+            }
+        }
 
         close(master_out); close(slave_out);
         close(master_err); close(slave_err);

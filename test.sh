@@ -30,7 +30,7 @@ LOCAL_HOST_WRAPPER="./host-wrapper"
 cat <<EOF > "$ALLOWLIST"
 /usr/bin/uname
 /usr/bin/printf
-/usr/bin/wc
+/usr/bin/wc +stdin
 EOF
 
 # 2. Create a stub SSH script that pipes directly to host-wrapper.
@@ -287,6 +287,39 @@ else
     echo "  Expected stderr: ERR_DATA, Actual: $ERR_VAL"
     fail_count=$((fail_count + 1))
 fi
+
+# Scenario 19: Verify +stdin restriction
+# Verify that a command without +stdin receives 0 bytes (EOF)
+# We add /usr/bin/wc (without +stdin) to a temporary allowlist, set up a stub ssh, and run it
+echo -n "Test: Stdin restriction (no +stdin option)... "
+TEMP_ALLOWLIST="./temp_allowlist"
+cat <<EOF > "$TEMP_ALLOWLIST"
+/usr/bin/wc
+EOF
+
+# Point our ssh stub to the wrapper using the temp allowlist
+cat <<EOF > "host-proxy-ssh.sh"
+#!/bin/sh
+exec "$LOCAL_HOST_WRAPPER" "$TEMP_ALLOWLIST"
+EOF
+
+ACTUAL_OUT=$(echo -n "hello stream" | "$LOCAL_HOST_PROXY" /usr/bin/wc -c 2>&1)
+# Because wc lacks +stdin, it should receive EOF and print 0
+if [[ "$ACTUAL_OUT" == *"0"* ]] && [[ "$ACTUAL_OUT" != *"12"* ]]; then
+    echo -e "${GREEN}PASS${NC}"
+    pass_count=$((pass_count + 1))
+else
+    echo -e "${RED}FAIL${NC}"
+    echo "  Expected wc -c to print 0"
+    echo "  Actual Output: $ACTUAL_OUT"
+    fail_count=$((fail_count + 1))
+fi
+
+# Restore the original allowlist and stub ssh
+cat <<EOF > "host-proxy-ssh.sh"
+#!/bin/sh
+exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+EOF
 
 # Cleanup Environment
 cd - > /dev/null

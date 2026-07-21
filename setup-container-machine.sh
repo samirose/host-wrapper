@@ -22,7 +22,7 @@ if [ ! -f "$ALLOWLIST_FILE" ]; then
 # Allowed commands for host-proxy inside the Container Machine
 /usr/bin/uname
 /usr/bin/printf
-/usr/bin/wc
+/usr/bin/wc +stdin
 EOF
 fi
 
