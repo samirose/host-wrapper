@@ -62,9 +62,39 @@ else
     echo "$AUTH_LINE" >> "$HOME/.ssh/authorized_keys"
 fi
 
-# 4. Provision or Start the Container Machine
+# 4. Prepare local guest share directory
+GUEST_SHARE_DIR="./guest_share"
+echo "[*] Preparing host-proxy files in local directory '$GUEST_SHARE_DIR'..."
+rm -rf "$GUEST_SHARE_DIR"
+mkdir -p "$GUEST_SHARE_DIR/ssh"
+
+cp host-proxy.c "$GUEST_SHARE_DIR/host-proxy.c"
+cp Makefile "$GUEST_SHARE_DIR/Makefile"
+cp "$SSH_KEY_FILE" "$GUEST_SHARE_DIR/ssh/id_ed25519_machine"
+chmod 600 "$GUEST_SHARE_DIR/ssh/id_ed25519_machine"
+
+# Write guest SSH script
+cat <<'EOF' > "$GUEST_SHARE_DIR/host-proxy-ssh.sh"
+#!/bin/sh
+cd "$(dirname "$0")" || exit 1
+HOST_GATEWAY=$(ip route show default 2>/dev/null | awk '/default/ {print $3}')
+if [ -z "$HOST_GATEWAY" ]; then
+    HOST_GATEWAY="192.168.64.1"
+fi
+GUEST_USER="${USER:-$(whoami)}"
+exec ssh -q -T -o StrictHostKeyChecking=no -i "./ssh/id_ed25519_machine" "$GUEST_USER@$HOST_GATEWAY" host-wrapper
+EOF
+chmod +x "$GUEST_SHARE_DIR/host-proxy-ssh.sh"
+
+# 5. Boot or create the Container Machine
 echo "[*] Provisioning Container Machine '$CONTAINER_MACHINE_NAME'..."
 container system start 2>/dev/null
+
+if container machine list | grep -q "$CONTAINER_MACHINE_NAME"; then
+    echo "[+] Container Machine '$CONTAINER_MACHINE_NAME' already exists. Booting..."
+    container machine set -n "$CONTAINER_MACHINE_NAME" cpus=2 memory=1G >/dev/null 2>&1
+    container machine run -n "$CONTAINER_MACHINE_NAME" true </dev/null >/dev/null 2>&1
+fi
 
 if ! container machine list | grep -q "$CONTAINER_MACHINE_NAME"; then
     echo "[*] Creating Container Machine '$CONTAINER_MACHINE_NAME'..."
@@ -79,7 +109,7 @@ if ! container machine list | grep -q "$CONTAINER_MACHINE_NAME"; then
     for i in {1..30}; do
         if container machine run -n "$CONTAINER_MACHINE_NAME" true </dev/null >/dev/null 2>&1; then
             echo ""
-            echo "[+] Container Machine is ready and accepting commands."
+            echo "[+] Container Machine is ready."
             READY=true
             break
         fi
@@ -89,49 +119,21 @@ if ! container machine list | grep -q "$CONTAINER_MACHINE_NAME"; then
 
     if [ "$READY" = false ]; then
         echo ""
-        echo "[-] Container Machine failed to initialize in a timely manner. Aborting."
+        echo "[-] Container Machine failed to initialize. Aborting."
         exit 1
     fi
 
-    # 5. Bootstrap Linux development tools inside the guest (Only done once on creation!)
-    echo "[*] Installing packages (build-base, openssh-client) inside the Container Machine guest..."
+    echo "[*] Installing packages inside guest..."
     container machine run -n "$CONTAINER_MACHINE_NAME" --root apk add --no-cache build-base openssh-client </dev/null
-else
-    echo "[+] Container Machine '$CONTAINER_MACHINE_NAME' already exists. Booting/starting if needed..."
-    container machine set -n "$CONTAINER_MACHINE_NAME" cpus=2 memory=1G >/dev/null 2>&1
-    # This automatically boots the machine if currently stopped
-    container machine run -n "$CONTAINER_MACHINE_NAME" true </dev/null >/dev/null 2>&1
 fi
 
-# 6. Replicate project code and SSH credentials into the isolated VM using standard input redirection (no volume mounts!)
-echo "[*] Provisioning host-proxy files to Container Machine via stdin piping..."
-container machine run -n "$CONTAINER_MACHINE_NAME" mkdir -p /tmp/app/ssh /tmp/app/config </dev/null
+# 6. Copy files to guest using tar pipe
+echo "[*] Copying files to guest..."
+container machine run -n "$CONTAINER_MACHINE_NAME" mkdir -p /tmp/app </dev/null
+tar -C "$GUEST_SHARE_DIR" -cf - . | container machine run -i -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- tar -xf -
 
-# Copy host-proxy.c (Passing -i to ensure stream doesn't close prematurely)
-container machine run -i -n "$CONTAINER_MACHINE_NAME" sh -c "cat > /tmp/app/host-proxy.c" < host-proxy.c
-
-# Copy Makefile
-container machine run -i -n "$CONTAINER_MACHINE_NAME" sh -c "cat > /tmp/app/Makefile" < Makefile
-
-# Copy the restricted private key
-container machine run -i -n "$CONTAINER_MACHINE_NAME" sh -c "cat > /tmp/app/ssh/id_ed25519_machine" < "$SSH_KEY_FILE"
-container machine run -n "$CONTAINER_MACHINE_NAME" chmod 600 /tmp/app/ssh/id_ed25519_machine </dev/null
-
-# Write the guest SSH connection script referencing the local key
-container machine run -i -n "$CONTAINER_MACHINE_NAME" sh -c "cat > /tmp/app/host-proxy-ssh.sh" <<'EOF'
-#!/bin/sh
-cd "$(dirname "$0")" || exit 1
-HOST_GATEWAY=$(ip route show default 2>/dev/null | awk '/default/ {print $3}')
-if [ -z "$HOST_GATEWAY" ]; then
-    HOST_GATEWAY="192.168.64.1"
-fi
-GUEST_USER="${USER:-$(whoami)}"
-exec ssh -q -T -o StrictHostKeyChecking=no -i "./ssh/id_ed25519_machine" "$GUEST_USER@$HOST_GATEWAY" host-wrapper
-EOF
-container machine run -n "$CONTAINER_MACHINE_NAME" chmod +x /tmp/app/host-proxy-ssh.sh </dev/null
-
-# 7. Compile host-proxy inside the Container Machine /tmp directory using Makefile
-echo "[*] Compiling host-proxy inside the Container Machine"
+# 7. Compile host-proxy inside guest
+echo "[*] Compiling host-proxy..."
 container machine run -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- make host-proxy </dev/null
 
 # 8. Run End-to-End Integration Tests
@@ -194,19 +196,11 @@ run_integration_test_fail() {
     fi
 }
 
-# Scenario 1: Execute uname on host and confirm it reports "Darwin" (macOS)
 run_integration_test "Retrieve Host OS (uname)" "Darwin" "" /usr/bin/uname
-
-# Scenario 2: Space preservation in arguments (using double-dash and nested quotes)
 run_integration_test "Space preservation (printf)" "[arg with space]" "" /usr/bin/printf "[%s]\\n" "\"arg with space\""
-
-# Scenario 3: Stdin stream forwarding through the proxy
 run_integration_test "Forwarding Stdin stream (wc)" "12" "hello stream" /usr/bin/wc -c
-
-# Scenario 4: Command not in allowlist (should be securely blocked)
 run_integration_test_fail "Blocked command validation (id)" "not in allowlist" /usr/bin/id
 
-# Scenario 5: Check host-wrapper auditing logs
 echo -n "Test: Verify Host Audit Logging... "
 if grep -q "DENIED " "./config/host-wrapper.log" && grep -q "ALLOWED" "./config/host-wrapper.log"; then
     echo "PASS"
@@ -216,14 +210,10 @@ else
     fail_count=$((fail_count + 1))
 fi
 
-# Scenario 6: Verify Host Home Directory Isolation
 echo -n "Test: Host Home Directory Isolation... "
-# Attempt to find common host home directories/files (like .ssh, Library, Desktop) inside the guest
 GUEST_HOME_FILES=$(container machine run -n "$CONTAINER_MACHINE_NAME" -- ls -la /Users /home 2>/dev/null)
-# Since --home-mount none is specified, /Users should be either empty, missing, or have no user directories.
-# We also check that the host user's actual username directory does not exist or has no host-specific directories.
 if [[ "$GUEST_HOME_FILES" == *"$USER"* && ("$GUEST_HOME_FILES" == *".ssh"* || "$GUEST_HOME_FILES" == *"Library"* || "$GUEST_HOME_FILES" == *"Desktop"*) ]]; then
-    echo "FAIL (Host home directory files are visible in the guest VM!)"
+    echo "FAIL"
     fail_count=$((fail_count + 1))
 else
     echo "PASS (Verified guest cannot access host home: /Users/$USER)"
@@ -234,7 +224,6 @@ echo "----------------------------------------"
 echo "Results: $pass_count passed, $fail_count failed"
 echo "----------------------------------------"
 
-# Open interactive shell if all passed, or if the user asks
 if [ $fail_count -ne 0 ]; then
     echo "[-] Integration testing encountered failures. Please resolve errors before continuing."
     exit 1
