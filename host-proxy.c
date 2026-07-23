@@ -55,9 +55,17 @@ void execute_ssh_child(int pipe_read_fd, const char *proxy_dir) {
     }
     close(pipe_read_fd);
 
-    // Construct the path to the connection script: [proxy_dir]/host-proxy-ssh.sh
+    // Construct the path to the connection script.
+    // Check for the HOST_PROXY_SSH_SCRIPT environment variable first,
+    // fallback to [proxy_dir]/host-proxy-ssh.sh.
     char script_path[PATH_MAX];
-    snprintf(script_path, sizeof(script_path), "%s/host-proxy-ssh.sh", proxy_dir);
+    const char *env_script = getenv("HOST_PROXY_SSH_SCRIPT");
+    if (env_script && env_script[0] != '\0') {
+        strncpy(script_path, env_script, sizeof(script_path) - 1);
+        script_path[sizeof(script_path) - 1] = '\0';
+    } else {
+        snprintf(script_path, sizeof(script_path), "%s/host-proxy-ssh.sh", proxy_dir);
+    }
 
     // Execute the connection script.
     char *script_argv[] = {
