@@ -80,6 +80,11 @@ typedef struct {
     size_t pos;
 } ParserContext;
 
+typedef struct {
+    int cols;
+    int rows;
+} TerminalSize;
+
 /**
  * Reads a single byte from the context source.
  */
@@ -326,69 +331,21 @@ int change_to_allowlist_dir(const char *allowlist_path) {
     free(path_copy);
     return 0;
 }
-
-int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path) {
-    int ret = 1;
-    char **target_argv = NULL;
-    int target_argc = 0;
-
-    // Parse terminal window size netstring (format: "cols,rows")
-    char *winsize_str = parse_netstring(ctx, NULL);
-    int cols = 80;
-    int rows = 24;
-    if (winsize_str) {
-        char *comma = strchr(winsize_str, ',');
-        if (comma) {
-            *comma = '\0';
-            char *endptr1;
-            char *endptr2;
-            long parsed_cols = strtol(winsize_str, &endptr1, 10);
-            long parsed_rows = strtol(comma + 1, &endptr2, 10);
-            if (endptr1 != winsize_str && *endptr1 == '\0' &&
-                endptr2 != (comma + 1) && *endptr2 == '\0' &&
-                parsed_cols > 0 && parsed_rows > 0) {
-                cols = (int)parsed_cols;
-                rows = (int)parsed_rows;
-            }
-        }
-        free(winsize_str);
-    }
-
-#ifdef FUZZING
-    (void)cols;
-    (void)rows;
-#endif
-
-    // 1. Parse target argc and argv
-    target_argv = parse_target_args(ctx, &target_argc);
-    if (!target_argv) return 1;
-
-    // 3. Validation
-    AllowlistResult allow_res = check_allowed(target_argv[0], allowlist_fp);
-    if (!allow_res.allowed) {
-        log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
-        audit_log("DENIED ", target_argc, target_argv, allowlist_path);
-        goto cleanup;
-    }
-
-    audit_log("ALLOWED", target_argc, target_argv, allowlist_path);
-
-    // 4. Execution
 #ifndef FUZZING
-    // Change working directory to the folder containing the allowlist
-    // before execution, so commands can use relative paths.
-    if (change_to_allowlist_dir(allowlist_path) != 0) {
-        goto cleanup;
-    }
-
+/**
+ * Spawns the target process inside dual PTY streams (stdout and stderr separated)
+ * and enters a poll loop to forward output. Returns the target command's exit code.
+ */
+int execute_command_with_pty(char **target_argv, int target_argc, TerminalSize termsize, int has_stdin) {
+    int ret = 1;
     int master_out = -1, slave_out = -1;
     int master_err = -1, slave_err = -1;
     int status;
     pid_t pid = -1;
 
     struct winsize ws;
-    ws.ws_row = (unsigned short)rows;
-    ws.ws_col = (unsigned short)cols;
+    ws.ws_row = (unsigned short)termsize.rows;
+    ws.ws_col = (unsigned short)termsize.cols;
     ws.ws_xpixel = 0;
     ws.ws_ypixel = 0;
 
@@ -424,7 +381,7 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
         dup2(slave_err, STDERR_FILENO);
         
         // Handle stdin option
-        if (!allow_res.has_stdin) {
+        if (!has_stdin) {
             int fd_null = open("/dev/null", O_RDONLY);
             if (fd_null >= 0) {
                 dup2(fd_null, STDIN_FILENO);
@@ -438,8 +395,9 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
         close(master_err); close(slave_err);
 
         execvp(target_argv[0], target_argv);
+
         log_error("execvp: %s\n", strerror(errno));
-        exit(1);
+        return 1;
     }
 
     // Parent:
@@ -503,8 +461,67 @@ execution_cleanup:
     if (slave_out != -1) close(slave_out);
     if (master_err != -1) close(master_err);
     if (slave_err != -1) close(slave_err);
+    (void)target_argc;
+    return ret;
+}
+#endif
+
+/**
+ * Parses the terminal window size netstring from the context (format: "cols,rows").
+ * Returns a TerminalSize struct, defaulting to 80x24 on error or absence.
+ */
+TerminalSize parse_terminal_size(ParserContext *ctx) {
+    TerminalSize size = { .cols = 80, .rows = 24 };
+    char *winsize_str = parse_netstring(ctx, NULL);
+    if (winsize_str) {
+        char *comma = strchr(winsize_str, ',');
+        if (comma) {
+            *comma = '\0';
+            char *endptr1;
+            char *endptr2;
+            long parsed_cols = strtol(winsize_str, &endptr1, 10);
+            long parsed_rows = strtol(comma + 1, &endptr2, 10);
+            if (endptr1 != winsize_str && *endptr1 == '\0' &&
+                endptr2 != (comma + 1) && *endptr2 == '\0' &&
+                parsed_cols > 0 && parsed_rows > 0) {
+                size.cols = (int)parsed_cols;
+                size.rows = (int)parsed_rows;
+            }
+        }
+        free(winsize_str);
+    }
+    return size;
+}
+
+int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path) {
+    int ret = 1;
+    char **target_argv = NULL;
+    int target_argc = 0;
+
+    TerminalSize termsize = parse_terminal_size(ctx);
+    target_argv = parse_target_args(ctx, &target_argc);
+    if (!target_argv) return 1;
+
+    AllowlistResult allow_res = check_allowed(target_argv[0], allowlist_fp);
+    if (!allow_res.allowed) {
+        log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
+        audit_log("DENIED ", target_argc, target_argv, allowlist_path);
+        goto cleanup;
+    }
+
+    audit_log("ALLOWED", target_argc, target_argv, allowlist_path);
+
+#ifndef FUZZING
+    // Change working directory to the folder containing the allowlist
+    // before execution, so commands can use paths relative to it.
+    if (change_to_allowlist_dir(allowlist_path) != 0) {
+        goto cleanup;
+    }
+
+    ret = execute_command_with_pty(target_argv, target_argc, termsize, allow_res.has_stdin);
 #else
     (void)allowlist_path;
+    (void)termsize;
     ret = 0; // Success in fuzzing mode
 #endif
 
