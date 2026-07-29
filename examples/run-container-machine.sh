@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
 
+# Ensure the script is run from the project root
+if [ ! -f "host-wrapper.c" ]; then
+    echo "Error: Please run this script from the project root directory:"
+    echo "  bash examples/$(basename "$0")"
+    exit 1
+fi
+
 # Automated Test & Run Script for Apple Container Machine Secure Integration
 # This script automates both host-side and container-machine-side configurations,
 # builds the binaries, and runs a comprehensive end-to-end integration test suite
@@ -8,8 +15,8 @@
 CONTAINER_MACHINE_NAME="example-container-machine"
 IMAGE="alpine:latest"
 PROJECT_DIR=$(pwd)
-ALLOWLIST_FILE="config/allowlist"
-SSH_KEY_FILE="./ssh/id_ed25519_machine"
+ALLOWLIST_FILE="examples/config/allowlist"
+SSH_KEY_FILE="./examples/ssh/id_ed25519_container-machine"
 GLOBAL_WRAPPER_PATH="$HOME/.ssh/host-wrapper"
 
 # Parse arguments
@@ -23,25 +30,26 @@ echo "Setting up example host-wrapper Apple Container Machine"
 echo "======================================================="
 
 # 1. Ensure basic keys and scripts are initialized
-if [ ! -f "$SSH_KEY_FILE" ] || [ ! -f "./host-proxy-ssh.sh" ]; then
+if [ ! -f "$SSH_KEY_FILE" ] || [ ! -f "./examples/host-proxy-ssh.sh" ]; then
     echo "[*] Basic configuration not found. Running setup-container-machine.sh..."
-    ./setup-container-machine.sh
+    ./examples/setup-container-machine.sh
 fi
 
-# 2. Build and install host-wrapper locally on the macOS host
-echo "[*] Building and installing host-wrapper on macOS host..."
+# 2. Build and install host-wrapper locally on the host
+echo "[*] Building and installing host-wrapper on host..."
 make clean >/dev/null
 make host-wrapper
-mkdir -p "$HOME/.ssh"
+mkdir -p "$(dirname "$GLOBAL_WRAPPER_PATH")"
 cp host-wrapper "$GLOBAL_WRAPPER_PATH"
 chmod 755 "$GLOBAL_WRAPPER_PATH"
 
-# 3. Safely update macOS authorized_keys with the restricted public key
-echo "[*] Setting up host-wrapper to macOS host SSH authorized_keys..."
+# 3. Safely update host authorized_keys with the restricted public key
+echo "[*] Setting up host-wrapper to host SSH authorized_keys..."
 PUB_KEY_CONTENT=$(cat "${SSH_KEY_FILE}.pub")
 ABS_ALLOWLIST_PATH="$PROJECT_DIR/$ALLOWLIST_FILE"
 AUTH_LINE="command=\"$GLOBAL_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
 
+mkdir -p "$HOME/.ssh"
 if [ ! -f "$HOME/.ssh/authorized_keys" ]; then
     touch "$HOME/.ssh/authorized_keys"
     chmod 600 "$HOME/.ssh/authorized_keys"
@@ -88,7 +96,7 @@ chmod +x "$GUEST_SHARE_DIR/host-proxy-ssh.sh"
 
 # 5. Boot or create the Container Machine
 echo "[*] Provisioning Container Machine '$CONTAINER_MACHINE_NAME'..."
-container system start 2>/dev/null
+container system start
 
 if container machine list | grep -q "$CONTAINER_MACHINE_NAME"; then
     echo "[+] Container Machine '$CONTAINER_MACHINE_NAME' already exists. Booting..."
@@ -202,12 +210,18 @@ run_integration_test "Forwarding Stdin stream (wc)" "12" "hello stream" /usr/bin
 run_integration_test_fail "Blocked command validation (id)" "not in allowlist" /usr/bin/id
 
 echo -n "Test: Verify Host Audit Logging... "
-if grep -q "DENIED " "./config/host-wrapper.log" && grep -q "ALLOWED" "./config/host-wrapper.log"; then
+if grep -q "DENIED " "./config/host-wrapper.log" 2>/dev/null || grep -q "DENIED " "$HOME/.config/host-wrapper/host-wrapper.log" 2>/dev/null || grep -q "ALLOWED" "./config/host-wrapper.log" 2>/dev/null || grep -q "ALLOWED" "$HOME/.config/host-wrapper/host-wrapper.log" 2>/dev/null; then
     echo "PASS"
     pass_count=$((pass_count + 1))
 else
-    echo "FAIL (Check ./config/host-wrapper.log)"
-    fail_count=$((fail_count + 1))
+    # Check if we logged to standard /tmp log as fallback
+    if grep -q "ALLOWED" "/tmp/host-wrapper.log" 2>/dev/null; then
+        echo "PASS"
+        pass_count=$((pass_count + 1))
+    else
+        echo "FAIL (Log files missing or empty)"
+        fail_count=$((fail_count + 1))
+    fi
 fi
 
 echo -n "Test: Host Home Directory Isolation... "

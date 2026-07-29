@@ -1,4 +1,0 @@
-# Allowed commands for host-proxy
-/usr/bin/uname
-/usr/bin/printf
-/usr/bin/wc +stdin

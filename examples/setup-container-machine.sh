@@ -1,11 +1,18 @@
 #!/bin/sh
 
 # Configuration for Apple Container Machine Setup
-ALLOWLIST_DIR="./config"
+ALLOWLIST_DIR="./examples/config"
 ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
-SSH_KEY_DIR="./ssh"
-SSH_KEY_FILE="$SSH_KEY_DIR/id_ed25519_machine"
+SSH_KEY_DIR="./examples/ssh"
+SSH_KEY_FILE="$SSH_KEY_DIR/id_ed25519_container-machine"
 CONTAINER_MACHINE_NAME="example-container-machine"
+
+# Ensure running from project root
+if [ ! -f "host-wrapper.c" ]; then
+    echo "Error: Please run this script from the project root directory:"
+    echo "  sh examples/$(basename "$0")"
+    exit 1
+fi
 
 # Ensure directories exist
 mkdir -p "$ALLOWLIST_DIR"
@@ -30,16 +37,16 @@ fi
 if [ ! -f "$SSH_KEY_FILE" ]; then
     echo "[*] Generating dedicated SSH key at $SSH_KEY_FILE..."
     ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "example-container-machine.key"
-    # Ensure correct permissions
     chmod 600 "$SSH_KEY_FILE"
 fi
 
 # 3. Generate a dynamic-gateway SSH Connection Script
-SSH_CONNECT_SCRIPT="./host-proxy-ssh.sh"
+SSH_CONNECT_SCRIPT="./examples/host-proxy-ssh.sh"
 echo "[*] Generating dynamic gateway connection script at $SSH_CONNECT_SCRIPT..."
 cat <<'EOF' > "$SSH_CONNECT_SCRIPT"
 #!/bin/sh
 # This script is invoked by host-proxy inside the Apple Container Machine.
+
 # Change to the script's directory to ensure relative paths work.
 cd "$(dirname "$0")" || exit 1
 
@@ -70,18 +77,11 @@ echo "   ~/.ssh/authorized_keys file:"
 echo ""
 echo "command=\"$GLOBAL_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
 echo ""
-echo "3. Create and boot the Container Machine SECURELY:"
-echo "   (This disables home sharing and mounts ONLY this project directory)"
-echo ""
+echo "3. Create and boot the Container Machine (with no home directory sharing):"
 echo "   container machine create alpine:latest \\"
 echo "     --name $CONTAINER_MACHINE_NAME \\"
-echo "     --home-mount none \\"
-echo "     --volume $(pwd):/app"
+echo "     --home-mount none"
 echo ""
-echo "4. Build host-proxy inside your container and test:"
-echo "   container machine run -n $CONTAINER_MACHINE_NAME"
-echo "   # Inside the container's interactive shell:"
-echo "   cd /app"
-echo "   gcc -O2 -Wall -Wextra host-proxy.c -o host-proxy"
-echo "   ./host-proxy /usr/bin/uname"
+echo "4. Copy client files and build host-proxy inside your container:"
+echo "   (Or simply run 'bash examples/run-container-machine.sh' to fully automate this!)"
 echo "--------------------------------------------------------"

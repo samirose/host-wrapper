@@ -14,3 +14,14 @@ crash-*
 leak-*
 timeout-*
 oom-*
+
+# Examples dynamic directories
+examples/ssh/
+examples/config/
+examples/container_project/ssh/
+examples/container_project/host-proxy-ssh.sh
+examples/container_project/flake.lock
+
+
+# Temporary Release Plan
+RELEASE_PLAN.md
