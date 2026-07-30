@@ -2,10 +2,13 @@ CC = cc
 CFLAGS = -Wall -Wextra -O2
 CLANG = clang
 
+# Overridable linker flags (e.g. override via: make LDLIBS="-lutil" on Linux glibc)
+LDLIBS =
+
 all: host-wrapper host-proxy
 
 host-wrapper: host-wrapper.c
-	$(CC) $(CFLAGS) -o $@ host-wrapper.c
+	$(CC) $(CFLAGS) -o $@ host-wrapper.c $(LDLIBS)
 
 host-proxy: host-proxy.c
 	$(CC) $(CFLAGS) -o $@ host-proxy.c

@@ -17,6 +17,7 @@ A lightweight command-execution gateway designed to bridge isolated development 
   - [Why C and POSIX?](#why-c-and-posix)
 - [Technical Architecture](#technical-architecture)
   - [Stream Multiplexing and Netstring Framing](#stream-multiplexing-and-netstring-framing)
+- [POSIX and OS Compatibility](#posix-and-os-compatibility)
 - [Multi-Project Architecture](#multi-project-architecture)
 - [Security Design](#security-design)
   - [Key Security Features](#key-security-features)
@@ -129,6 +130,20 @@ There is a test script that test behaviour and key security features. The host-s
 
 ### SECURITY DISCLAIMER
 I (the author) am an experienced software developer, but not a professional security expert. I have attempted to make this tool stand up to its security claims, but all risks associated with its use—particularly the risk of exposing the host operating system via allowlist misconfiguration—rest entirely with the user.
+
+---
+
+## POSIX and OS Compatibility
+
+While `host-wrapper` is originally designed with macOS development hosts in mind, its codebase is engineered using standard POSIX C APIs to support compiling across modern POSIX-compliant operating systems.
+
+> [!IMPORTANT]
+> The only officially tested and verified configurations are **macOS hosts** and **Linux guests** (such as Alpine and Nix environments). Compile-time support for other host/guest environments (such as Linux hosts or BSD systems) is provided portably but has not been tested.
+
+### Supported Environments
+- **macOS / Darwin**: Host supported natively with no external compile flags required. Guest untested and out of scope for the tool.
+- **Linux**: Guest supported, host support untested. Compiling host-wrapper on glibc-based Linux distributions (e.g., Ubuntu, Debian, CentOS) requires linking the standard PTY library using `make LDLIBS="-lutil"`. Musl-based distributions (e.g., Alpine Linux) should compile natively without any flags.
+- **BSD Systems (FreeBSD, OpenBSD, NetBSD, DragonFly BSD)**: Includes compile-time support for standard BSD PTY layouts, but has not been formally tested.
 
 ---
 

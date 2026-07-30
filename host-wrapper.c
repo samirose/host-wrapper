@@ -32,7 +32,11 @@
 #include <time.h>
 #include <sys/ioctl.h>
 #include <termios.h>
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
 #include <util.h>
+#else
+#include <pty.h>
+#endif
 #include <poll.h>
 #include <fcntl.h>
 
