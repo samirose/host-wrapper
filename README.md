@@ -23,6 +23,7 @@ A lightweight command-execution gateway designed to bridge isolated development 
   - [Key Security Features](#key-security-features)
   - [SECURITY DISCLAIMER](#security-disclaimer)
 - [Installation and Usage](#installation-and-usage)
+  - [Prerequisites](#prerequisites)
   - [1. Build from Source](#1-build-from-source)
   - [2. Host-Side Installation](#2-host-side-installation)
   - [3. Client-Side Integration](#3-client-side-integration)
@@ -170,6 +171,20 @@ A single compiled `host-wrapper` binary on your host (e.g., placed at `~/.ssh/ho
 ---
 
 ## Installation and Usage
+
+### Prerequisites
+
+Before installing, ensure that your environments meet the following requirements:
+
+#### Host System
+- **C Compiler & Build Tools**: A C compiler (such as `gcc` or `clang`) and `make` to compile the server-side binary.
+- **SSH Daemon**: A running SSH server (`sshd`) configured to allow key-based authentication.
+- **PTY Support**: Standard POSIX pseudo-terminal support (natively supported on macOS/Darwin and standard Linux distributions).
+
+#### Guest System (Container / VM)
+- **C Compiler**: A standard C compiler inside the guest to compile the client-side binary natively for its target operating system and processor architecture.
+- **SSH Client**: An installed SSH client (e.g., `openssh-client` or equivalent) to establish the connection tunnel.
+- **POSIX Shell**: A standard POSIX-compliant shell (like `sh` or `bash`) to execute the connection script.
 
 ### 1. Build from Source
 Compile both components on your host:
