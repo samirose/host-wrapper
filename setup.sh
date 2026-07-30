@@ -19,7 +19,7 @@ if [ ! -f "$ALLOWLIST_FILE" ]; then
     cat <<EOF > "$ALLOWLIST_FILE"
 # Allowed commands for host-proxy
 #
-# - Edit to include commands relevant your use case, on per line.
+# - Edit to include commands relevant to your use case, one per line.
 # - Use +stdin option to allow the command to receive standard input from the proxy.
 /usr/bin/uname
 /usr/bin/printf
@@ -27,7 +27,7 @@ if [ ! -f "$ALLOWLIST_FILE" ]; then
 EOF
 fi
 
-# 3. Generate SSH Key Pair (if does not exists)
+# 3. Generate SSH Key Pair (if it does not exist)
 if [ ! -f "$SSH_KEY_FILE" ]; then
     echo "Generating SSH key for container at $SSH_KEY_FILE..."
     ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "host-wrapper.key"
