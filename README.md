@@ -72,21 +72,27 @@ Host-wrapper treats the host as a restricted remote RPC server. By utilizing nat
 sequenceDiagram
     participant Guest as Guest Container
     participant Proxy as host-proxy (Client)
+    participant Pump as guest stdin-pump
     participant SSH as SSH Tunnel (enforced command)
     participant Wrapper as host-wrapper (Server)
-    participant HostCmd as Approved Host Command
+    participant Log as Host Audit Log
+    participant HostCmd as Host /usr/bin/wc
 
-    Guest->>Proxy: Execute: wc -l
-    Proxy->>Proxy: Format netstrings: 5:80,24,1:2,2:wc,2:-l,
+    Guest->>Proxy: Execute: /usr/bin/wc -l
+    Proxy->>Proxy: Format netstrings: 5:80,24,1:2,11:/usr/bin/wc,2:-l,
     Proxy->>SSH: Connect with restricted SSH key
     SSH->>Wrapper: Launch host-wrapper [allowlist_path]
     Proxy->>Wrapper: Pipe framed netstrings over stdin
     Wrapper->>Wrapper: Parse terminal size & command arguments
-    Wrapper->>Wrapper: Validate "wc" against allowlist
+    Wrapper->>Wrapper: Validate "/usr/bin/wc" against allowlist
+    Wrapper->>Log: Append log event (ALLOWED / /usr/bin/wc)
     rect green
         Note over Wrapper,HostCmd: Authorization Check: ALLOWED
     end
+    Proxy->>Pump: fork() stdin-pump subprocess
+    Pump->>Wrapper: Pipe raw stdin stream bytes
     Wrapper->>HostCmd: fork() & execvp() inside Dual PTYs
+    Wrapper->>HostCmd: Stream stdin
     HostCmd-->>Wrapper: Stream stdout/stderr
     Wrapper-->>Proxy: Framed stdout/stderr streams
     Proxy-->>Guest: Propagate streams & exit code
@@ -105,9 +111,9 @@ Format:
 ```text
 [argc netstring][arg0 netstring][arg1 netstring]...[remaining stdin payload]
 ```
-For example, executing `wc -l` translates to:
+For example, executing `/usr/bin/wc -l` translates to:
 ```text
-1:2,2:wc,2:-l,
+1:2,11:/usr/bin/wc,2:-l,
 ```
 Because the wrapper parses `stdin` byte-by-byte up to the exact end of the header, the invoked target process natively inherits the remaining raw bytes on the standard input file descriptor.
 
