@@ -1,0 +1,226 @@
+# Host-wrapper
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Language: C](https://img.shields.io/badge/Language-C-blue.svg)](https://en.wikipedia.org/wiki/C_(programming_language))
+[![Fuzzing: LibFuzzer](https://img.shields.io/badge/Fuzzing-LibFuzzer-green.svg)](https://llvm.org/docs/LibFuzzer.html)
+
+A lightweight command-execution gateway designed to bridge isolated development containers and virtual machines (VMs) with the host operating system's command line interface (CLI). It allows containers to run explicitly allowed host-side commands directly from and isolated container or VM. Implemented with POSIX-compliant C and shell scripts.
+
+---
+
+## Table of Contents
+
+- [Introduction](#introduction)
+- [Purpose and Motivation](#purpose-and-motivation)
+  - [The Security Problem](#the-security-problem)
+  - [The host-wrapper Solution](#the-host-wrapper-solution)
+  - [Why C and POSIX?](#why-c-and-posix)
+- [Technical Architecture](#technical-architecture)
+  - [Stream Multiplexing and Netstring Framing](#stream-multiplexing-and-netstring-framing)
+- [Multi-Project Architecture](#multi-project-architecture)
+- [Security Design](#security-design)
+  - [Key Security Features](#key-security-features)
+  - [SECURITY DISCLAIMER](#security-disclaimer)
+- [Installation and Usage](#installation-and-usage)
+  - [1. Build from Source](#1-build-from-source)
+  - [2. Host-Side Installation](#2-host-side-installation)
+  - [3. Client-Side Integration](#3-client-side-integration)
+- [Integration Examples](#integration-examples)
+- [Omitted Features and Intended Constraints](#omitted-features-and-intended-constraints)
+- [Possible Future Development](#possible-future-development)
+- [License](#license)
+- [AI Tooling Disclosure](#ai-tooling-disclosure)
+
+---
+
+## Introduction
+
+host-wrapper is a dual-component client-server utility:
+- **host-wrapper (Server)**: A binary installed on the host system. It intercepts incoming commands via an SSH restricted shell, validates them against an allowlist, and executes approved programs inside a target workspace directory.
+- **host-proxy (Client)**: A binary run inside the guest container or VM. It captures standard streams (stdin, stdout, stderr), captures window terminal size configurations, serializes command and its arguments using netstring framing, and forwards them across the SSH tunnel to the host-wrapper via SSH.
+
+---
+
+## Purpose and Motivation
+
+Isolated development workspaces (such as Docker containers, Nix-shell environments, and Apple Container Machines) provide security by isolating the workspace from the host operating system (OS). However, developers may need to invoke host-side system utilities or platform-specific tools from inside these guests:
+- **Compilers and Hardware-Accelerated Linkers** (e.g., Apple Clang, Metal compiler, host toolchains).
+- **Security Key Access** (e.g., triggering host-side GPG, Git commit signing, SSH agents).
+- **Proprietary/Local APIs and System Commands**.
+
+### The Security Problem
+Quick workarounds for host access compromise security boundaries:
+- **Volume Mounting home directory**: Exposes SSH keys, personal secrets, and configuration files to untrusted guest packages inside containers.
+- **SSH Passwordless Sudo**: Invalidates the security isolation of virtualization entirely.
+
+### The host-wrapper Solution
+Host-wrapper treats the host as a restricted remote RPC server. By utilizing native SSH forced-commands (`command="..."` in `authorized_keys`), the guest container is granted access to exactly and only the commands specified in a host-side allowlist. There are:
+- No bind mounts or volume leakage.
+- No privilege escalation (runs as a configurable host user).
+
+### Why C and POSIX?
+- **Zero Runtime Dependencies**: Both the client (`host-proxy`) and server (`host-wrapper`) require no external package managers, language runtimes (such as Python, Node.js, or Go), or shared runtime libraries. They can run easily in highly constrained busybox or scratch Alpine containers.
+- **Extreme Portability**: The code relies strictly on standard POSIX C system APIs, allowing it to compile cleanly on any POSIX-compliant guest or host platform (macOS, Linux, Alpine, BSD, etc.).
+- **Minimal Overhead**: Spawning a lightweight compiled binary over an SSH tunnel introduces negligible execution latency.
+
+---
+
+## Technical Architecture
+
+```mermaid
+sequenceDiagram
+    participant Guest as Guest Container
+    participant Proxy as host-proxy (Client)
+    participant SSH as SSH Tunnel (enforced command)
+    participant Wrapper as host-wrapper (Server)
+    participant HostCmd as Approved Host Command
+
+    Guest->>Proxy: Execute: wc -l
+    Proxy->>Proxy: Format netstrings: 5:80,24,1:2,2:wc,2:-l,
+    Proxy->>SSH: Connect with restricted SSH key
+    SSH->>Wrapper: Launch host-wrapper [allowlist_path]
+    Proxy->>Wrapper: Pipe framed netstrings over stdin
+    Wrapper->>Wrapper: Parse terminal size & command arguments
+    Wrapper->>Wrapper: Validate "wc" against allowlist
+    rect green
+        Note over Wrapper,HostCmd: Authorization Check: ALLOWED
+    end
+    Wrapper->>HostCmd: fork() & execvp() inside Dual PTYs
+    HostCmd-->>Wrapper: Stream stdout/stderr
+    Wrapper-->>Proxy: Framed stdout/stderr streams
+    Proxy-->>Guest: Propagate streams & exit code
+```
+
+### Stream Multiplexing and Netstring Framing
+Since SSH only provides a single stream for bidirectional communication, host-wrapper implements netstring framing (format: `[length]:[payload],`) to transparently multiplex:
+1. Terminal size (columns and rows) to preserve PTY wrapping.
+2. Formatted argument arrays (`argc` and `argv`).
+3. Standard streams (`stdin`, `stdout`, `stderr`) without mixing boundaries.
+4. Exit status propagation of the executed host command.
+
+#### Argument Serialization Format
+The `argv` array is serialized as a sequence of netstrings, prefixed by a netstring representing `argc`.
+Format:
+```text
+[argc netstring][arg0 netstring][arg1 netstring]...[remaining stdin payload]
+```
+For example, executing `wc -l` translates to:
+```text
+1:2,2:wc,2:-l,
+```
+Because the wrapper parses `stdin` byte-by-byte up to the exact end of the header, the invoked target process natively inherits the remaining raw bytes on the standard input file descriptor.
+
+To guarantee terminal compliance and color support, approved host processes are spawned inside Dual PTY streams (separating stdout and stderr), mimicking native host execution.
+
+---
+
+## Security Design
+
+There is a test script that test behaviour and key security features. The host-side netstring and argument parser have been extensively fuzzed under AddressSanitizer and UndefinedBehaviorSanitizer to test for memory leaks, crashes, and out-of-bounds access.
+
+### Key Security Features
+1. **Enforced SSH Command Context**: The client's public key in the host's `~/.ssh/authorized_keys` file is restricted using `command="/path/to/host-wrapper /path/to/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding`. This guarantees that even if a guest container is compromised, it can only invoke the host-wrapper via SSH.
+2. **Working Directory Mapping**: Before executing an approved host command, host-wrapper changes its working directory (`chdir`) to the directory containing the allowlist file. This serves as a convenience, allowing host commands to resolve file paths relative to workspace directory.
+3. **Strict Command Validation**:
+   - Commands are validated strictly by their base path.
+   - Standard input redirection from proxy to host is blocked by default for all allowed commands unless explicitly overridden in the allowlist using the `+stdin` option.
+4. **Resilient Shell/Injection Prevention**: The wrapper bypasses the shell completely by invoking processes directly using `execvp()`. There is no shell evaluation of arguments, preventing command-injection attacks.
+5. **Audit Logging**: Every execution attempt (both `ALLOWED` and `DENIED` actions) is logged to a host-side file with timestamps, target arguments, and client keys, allowing auditing of wrapper actions.
+
+### SECURITY DISCLAIMER
+I (the author) am an experienced software developer, but not a professional security expert. I have attempted to make this tool stand up to its security claims, but all risks associated with its use—particularly the risk of exposing the host operating system via allowlist misconfiguration—rest entirely with the user.
+
+---
+
+## Multi-Project Architecture
+
+A single compiled `host-wrapper` binary on your host (e.g., placed at `~/.ssh/host-wrapper`) can serve multiple different isolated containers or projects:
+
+1. **Host-Side Key Allocation**: In your `~/.ssh/authorized_keys`, configure a separate SSH key for each container/project. Link each key to the same wrapper binary, but specify a different, isolated `allowlist` file path:
+   ```text
+   # Project A (limited to Project A allowlist)
+   command="~/.ssh/host-wrapper ~/ProjectA/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 KEY_A
+
+   # Project B (limited to Project B allowlist)
+   command="~/.ssh/host-wrapper ~/ProjectB/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 KEY_B
+   ```
+2. **Context Isolation**: When executing commands, `host-wrapper` automatically changes directory to the folder containing the specific allowlist file. This allows scripts in `Project A` to resolve file paths relative to `~/ProjectA/` with absolute path safety.
+
+---
+
+## Installation and Usage
+
+### 1. Build from Source
+Compile both components on your host:
+```bash
+make
+```
+This builds:
+- `host-wrapper` (for the host)
+- `host-proxy` (for the container client)
+
+### 2. Host-Side Installation
+Run the central installation script on your host to generate your configuration templates and keys:
+```bash
+bash setup.sh
+```
+This script will:
+1. Initialize `$HOME/.config/host-wrapper/allowlist` with example content
+2. Generate a client key pair inside `$HOME/.ssh/host-wrapper_id_ed25519`
+3. Print the exact line to paste into your host's `$HOME/.ssh/authorized_keys` file, for example:
+
+```text
+command="/Users/YOUR_USER/.ssh/host-wrapper /Users/YOUR_USER/.config/host-wrapper/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAAC3... host-wrapper.key
+```
+
+### 3. Client-Side Integration
+Because host-proxy runs inside the guest container, it must be compiled for the target container's operating system and processor architecture, as compiling directly on the host OS produces an incompatible executable.
+
+To install host-proxy inside the container:
+1. Compile the source code of `host-proxy.c` inside your guest container using the container's compiler.
+2. Copy the generated SSH private key into the container.
+3. Invoke any command through the compiled guest proxy:
+```bash
+./host-proxy /usr/bin/uname
+```
+
+---
+
+## Integration Examples
+
+The repository includes example templates under the [`examples/`](examples/) directory:
+
+- **Apple Container Machine VM (examples/run-container-machine.sh)**:
+  Sets up an Alpine VM running with home directory isolation (`--home-mount none`). It uses a memory-buffered `tar` pipe to transfer the `host-proxy` source code and client key into the guest, builds `host-proxy` inside the VM, and runs an integration test suite.
+- **Nix Standard Container (examples/run-container.sh)**:
+  Launches a Nix container environment. It bind-mounts the root `host-wrapper` directory read-only, allowing the guest's development Nix flake to natively build and install `host-proxy` inside the guest environment.
+
+---
+
+## Omitted Features and Intended Constraints
+
+host-wrapper deliberately omits several features to enforce a strict boundary:
+- **No Port Forwarding (no-port-forwarding)**: Guest containers cannot open socket tunnels or map network ports back to the host.
+- **No X11 Forwarding (no-X11-forwarding)**: Prevents guest GUI access or graphical screen eavesdropping.
+- **No Command Argument Validation**: The wrapper validates the base command path but does not parse or validate the arguments passed to it. If fine-grained argument validation is required, users must configure a custom wrapper script on the host and place that script in the allowlist instead.
+
+---
+
+## Possible Future Development
+
+Potential features for consideration:
+- **Granular User Mappings**: Configuring host-wrapper to drop privileges or map executed commands to separate local guest-specific system users.
+- **Custom Environment Variables**: Allowing specific, sanitized environment variables (e.g., `LANG`, `TERM`) to pass across the proxy.
+- **Dynamic Window Resizing**: Supporting terminal size change signals (SIGWINCH) dynamically during active long-running sessions, which would require an asynchronous signal forwarding layer inside the proxy and wrapper.
+
+---
+
+## License
+
+This project is released under the MIT License.
+
+---
+
+## AI Tooling Disclosure
+
+Development and documentation were assisted by Gemini CLI and the Google Antigravity CLI. Architecture, source code, and documentation was audited, refined, and reviewed by the author.
