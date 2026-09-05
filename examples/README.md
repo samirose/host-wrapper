@@ -28,8 +28,8 @@ Since Apple's Container Machine VM currently supports only home directory mounti
 This example demonstrates how to run an isolated Nix development environment in a container where development dependencies and tools (such as git, gnumake, and gawk) are installed natively alongside the host-proxy binary for controlled host CLI access.
 
 ### Scripts
-- **setup-container.sh**: Configures container local dependencies, generates standard DNS routing templates, and creates SSH keys.
-- **run-container.sh**: Provisions an isolated bridge network, bind-mounts the root `host-wrapper` directory read-only to the container, and launches an interactive Nix shell in the container.
+- **setup-container.sh**: Configures container local dependencies, generates gateway connection scripts, and creates SSH keys.
+- **run-container.sh**: Provisions an isolated bridge network, builds an OCI container image using Nix via an ephemeral builder container, loads it into the container platform, and launches an interactive development shell.
 
 ### Architecture
-This container mounts the `examples/container_project` directory as its active working directory. The Nix flake (`examples/container_project/flake.nix`) reads the read-only `/host-wrapper` bind-mount to compile and install `host-proxy` dynamically inside the container's shell PATH, mapping execution paths via an environment variable.
+This container mounts the `examples/container_project` directory as its active working directory. The project Nix flake (`examples/container_project/flake.nix`) packages `host-proxy` and developer tools into a self-contained OCI container image (`oci-image`). Both Docker image streaming (`docker-stream`) and native OCI archives (`oci-image`) are provided by the flake outputs.

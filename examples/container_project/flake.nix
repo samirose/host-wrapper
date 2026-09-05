@@ -12,6 +12,48 @@
       forAllSystems = f: nixpkgs.lib.genAttrs supportedSystems (system: f system);
     in
     {
+      packages = forAllSystems (system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+
+          dockerStream = pkgs.dockerTools.streamLayeredImage {
+            name = "example-container";
+            tag = "latest";
+            contents = [
+              host-wrapper.packages.${system}.host-proxy
+              pkgs.git
+              pkgs.gnumake
+              pkgs.gawk
+              pkgs.bashInteractive
+              pkgs.coreutils
+              pkgs.openssh
+              pkgs.iproute2
+              pkgs.dockerTools.fakeNss
+            ];
+            config = {
+              Cmd = [ "${pkgs.bashInteractive}/bin/bash" ];
+              Env = [
+                "PATH=/bin"
+                "HOST_PROXY_SSH_SCRIPT=/project/host-proxy-ssh.sh"
+              ];
+              WorkingDir = "/project";
+            };
+          };
+
+          ociImage = pkgs.runCommand "example-container.tar" {
+            nativeBuildInputs = [ pkgs.skopeo ];
+          } ''
+            ${dockerStream} > docker.tar
+            skopeo copy --insecure-policy docker-archive:docker.tar oci-archive:$out:example-container:latest
+          '';
+        in
+        {
+          docker-stream = dockerStream;
+          oci-image = ociImage;
+          default = ociImage;
+        }
+      );
+
       devShells = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };

@@ -10,15 +10,10 @@ fi
 # Configuration
 HOST_PROJECT_DIR=$(pwd)
 CONTAINER_PROJECT_DIR="./examples/container_project"
-PROJECT_NAME="example-container"
-IMAGE="ghcr.io/nixos/nix"
-NIX_STORE_VOLUME="nix-store-$PROJECT_NAME"
+PROJECT_NAME="${PROJECT_NAME:-example-container}"
+IMAGE_NAME="$PROJECT_NAME:latest"
+BUILDER_IMAGE="ghcr.io/nixos/nix"
 NETWORK_NAME="host-wrapper-net"
-NIX_CONFIG="
-  experimental-features = nix-command flakes
-  auto-optimise-store = true
-  warn-dirty = false
-"
 
 # 1. Ensure basic keys and scripts are initialized
 SSH_KEY_FILE="$CONTAINER_PROJECT_DIR/ssh/id_ed25519_container"
@@ -35,27 +30,38 @@ if ! container network list | grep -q "$NETWORK_NAME"; then
     container network create "$NETWORK_NAME"
 fi
 
-# Reset Nix store option
+# Reset container image option
 if [[ "$1" == "--reset" ]]; then
-    echo "Resetting Nix store volume $NIX_STORE_VOLUME..."
-    container volume rm "$NIX_STORE_VOLUME"
+    echo "Removing container image $IMAGE_NAME..."
+    container image rm "$IMAGE_NAME" 2>/dev/null || true
     exit 0
 fi
 
-container system start
+# Build or rebuild container image if missing or requested
+if [[ "$1" == "--rebuild" ]] || ! container image list | grep -q "$PROJECT_NAME"; then
+    echo "[*] Building OCI image using Nix..."
+    ARCHIVE_PATH="$CONTAINER_PROJECT_DIR/$PROJECT_NAME.tar"
 
-# Check that the Nix volume is populated
-container run --rm \
-  --volume "$NIX_STORE_VOLUME:/mnt/nix_target" \
-  "$IMAGE" \
-   sh -c '
-    if [ ! -d "/mnt/nix_target/store" ] || [ ! -d "/mnt/nix_target/var/nix" ]; then
-      echo "Setting up Nix store volume"
-      cp -a /nix/. /mnt/nix_target/
-    fi
-  '
+    container run --rm \
+      --mount "type=bind,source=$HOST_PROJECT_DIR,target=/host-wrapper,readonly=true" \
+      --mount "type=bind,source=$CONTAINER_PROJECT_DIR,target=/project" \
+      --workdir /project \
+      "$BUILDER_IMAGE" \
+      sh -c "
+        OUT=\$(nix build --extra-experimental-features 'nix-command flakes' \
+          --override-input host-wrapper path:/host-wrapper \
+          --no-link --print-out-paths .#oci-image)
+        cp -L \"\$OUT\" \"/project/$PROJECT_NAME.tar\"
+      "
 
-# Start a development shell in the container
+    echo "[*] Loading OCI image into container platform..."
+    container image load -i "$ARCHIVE_PATH"
+    rm -f "$ARCHIVE_PATH"
+    echo "[*] Image $IMAGE_NAME built and loaded successfully."
+    [[ "$1" == "--rebuild" ]] && exit 0
+fi
+
+# Start a development shell in the container instantly
 container run -it --rm \
   --name "$PROJECT_NAME-$(date +%s)" \
   --network "$NETWORK_NAME" \
@@ -63,9 +69,6 @@ container run -it --rm \
   --workdir /project \
   --cpus 2 \
   --memory 1g \
-  -e NIX_CONFIG="$NIX_CONFIG" \
+  -e HOST_USER="${USER:-$(whoami)}" \
   --mount "type=bind,source=$CONTAINER_PROJECT_DIR,target=/project" \
-  --mount "type=bind,source=$HOST_PROJECT_DIR,target=/host-wrapper,readonly=true" \
-  --mount "type=volume,source=$NIX_STORE_VOLUME,target=/nix" \
-  $IMAGE \
-  nix develop --accept-flake-config
+  "$IMAGE_NAME"

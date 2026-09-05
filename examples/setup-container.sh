@@ -6,7 +6,6 @@ ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
 CONTAINER_PROJECT_DIR="./examples/container_project"
 SSH_KEY_DIR="$CONTAINER_PROJECT_DIR/ssh"
 SSH_KEY_FILE="$SSH_KEY_DIR/id_ed25519_container"
-HOST_DNS_NAME="host-os.internal"
 
 # Ensure running from project root
 if [ ! -f "host-wrapper.c" ]; then
@@ -43,6 +42,7 @@ fi
 
 # 3. Generate standard host connection script
 SSH_CONNECT_SCRIPT="./examples/container_project/host-proxy-ssh.sh"
+HOST_USER="${USER:-$(whoami)}"
 echo "[*] Generating standard gateway connection script at \$SSH_CONNECT_SCRIPT..."
 cat <<EOF > "$SSH_CONNECT_SCRIPT"
 #!/bin/sh
@@ -51,7 +51,11 @@ cat <<EOF > "$SSH_CONNECT_SCRIPT"
 # Change to the script's directory to ensure relative paths work.
 cd "\$(dirname "\$0")" || exit 1
 
-exec ssh -q -T -o StrictHostKeyChecking=no -i "./ssh/id_ed25519_container" "$USER@$HOST_DNS_NAME" host-wrapper
+# Connect to the host using the default bridge gateway IP
+HOST_GATEWAY="192.168.64.1"
+TARGET_USER="\${HOST_USER:-\${USER:-$HOST_USER}}"
+
+exec ssh -q -T -o StrictHostKeyChecking=no -i "./ssh/id_ed25519_container" "\$TARGET_USER@\$HOST_GATEWAY" host-wrapper
 EOF
 chmod +x "$SSH_CONNECT_SCRIPT"
 
@@ -71,10 +75,6 @@ echo "2. Add the restricted public key to your host's ~/.ssh/authorized_keys fil
 echo ""
 echo "command=\"$GLOBAL_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
 echo ""
-echo "3. Run this command once per reboot to allow container-to-host DNS resolution:"
-echo "   sudo container system dns create $HOST_DNS_NAME --localhost 127.0.0.1"
-echo ""
-echo "4. Build and run in the Nix container environment:"
-echo "   make host-proxy"
+echo "3. Run in the Nix container environment:"
 echo "   bash examples/run-container.sh"
 echo "--------------------------------------------------------"
