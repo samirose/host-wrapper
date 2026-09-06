@@ -7,6 +7,8 @@ LDLIBS =
 
 all: host-wrapper host-proxy
 
+.PHONY: all test test-connect fuzz fuzz-minimize clean
+
 host-wrapper: host-wrapper.c
 	$(CC) $(CFLAGS) -o $@ host-wrapper.c $(LDLIBS)
 
@@ -20,9 +22,16 @@ host-wrapper-test: host-wrapper.c
 host-proxy-test: host-proxy.c
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-proxy.c
 
-# Run the test suite using the sanitized test binaries
+# Run the protocol test suite using the sanitized test binaries,
+# followed by the connection setup suite (no binaries required).
 test: host-wrapper-test host-proxy-test
 	HOST_WRAPPER=./host-wrapper-test HOST_PROXY=./host-proxy-test ./test.sh
+	./test-connect.sh
+
+# Connection script and host key pinning tests. These stub out ssh and ip,
+# so they need neither a network nor a configured host.
+test-connect:
+	./test-connect.sh
 
 # Fuzzing target
 # Note: This requires clang with libFuzzer support.
