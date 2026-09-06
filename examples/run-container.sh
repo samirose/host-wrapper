@@ -24,6 +24,12 @@ if [ ! -f "$SSH_KEY_FILE" ] || [ ! -f "$SSH_CONNECT_SCRIPT" ]; then
     ./examples/setup-container.sh
 fi
 
+# Refresh the connection assets on every run. The pinned host key and the host
+# login user are host state, not project state: they can change without the
+# key or the script disappearing, and a stale pin fails the connection.
+./host-connect-setup.sh "$CONTAINER_PROJECT_DIR" \
+  --key "$(basename "$SSH_KEY_FILE")" >/dev/null
+
 # Ensure isolated network exists
 if ! container network list | grep -q "$NETWORK_NAME"; then
     echo "Creating isolated network $NETWORK_NAME..."
@@ -69,6 +75,5 @@ container run -it --rm \
   --workdir /project \
   --cpus 2 \
   --memory 1g \
-  -e HOST_USER="${USER:-$(whoami)}" \
   --mount "type=bind,source=$CONTAINER_PROJECT_DIR,target=/project" \
   "$IMAGE_NAME"
