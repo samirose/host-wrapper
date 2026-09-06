@@ -123,6 +123,24 @@ A clean tree produces no output. Note that this greps the generator, not the
 guest script it emits; check that one by generating into a scratch directory and
 running `dash -n` over the result.
 
+## Documentation
+
+`README.md` and `examples/README.md` describe how the project behaves now. A
+reader arriving today should not have to parse what it used to do.
+
+- **Do not justify a design by contrasting it with what it replaced.** Write
+  "fails with a diagnostic naming the override", not "fails rather than falling
+  back to a default that produced a timeout somewhere else". The reason
+  something changed belongs in the commit message, which is where anyone asking
+  why will look.
+- **Counterfactuals about a mechanism are not history.** Saying what a feature
+  prevents, or what would go wrong without it, explains the feature and belongs
+  in the documentation. The test is whether the sentence would still read
+  sensibly to someone who had never seen the previous version.
+- **Word the same fact the same way everywhere.** Where two files explain the
+  same thing, they should not drift into two descriptions a reader has to
+  reconcile.
+
 ## Commits
 
 Prefer several small commits to one large one. A reviewer should be able to hold
