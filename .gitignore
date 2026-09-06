@@ -5,6 +5,7 @@ host-wrapper-test
 host-wrapper-fuzzer
 host-proxy-ssh.sh
 ssh/
+guest/
 .cache/
 guest_share/
 host-wrapper.log

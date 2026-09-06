@@ -4,10 +4,16 @@
 # This script initializes secure host-side configurations in standard user
 # directories and generates the restricted SSH keypair used by container clients.
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+
 ALLOWLIST_DIR="$HOME/.config/host-wrapper"
 ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
 SSH_KEY_DIR="$HOME/.ssh"
 SSH_KEY_FILE="$SSH_KEY_DIR/host-wrapper_id_ed25519"
+GUEST_KEY_NAME="host-wrapper_id_ed25519"
+
+# Everything the guest needs is assembled here, ready to be copied in one go.
+GUEST_DIR="./guest"
 
 # 1. Create standard config directories
 mkdir -p "$ALLOWLIST_DIR"
@@ -35,25 +41,21 @@ if [ ! -f "$SSH_KEY_FILE" ]; then
     chmod 600 "${SSH_KEY_FILE}.pub"
 fi
 
-# 4. Generate a generic SSH Connection Script
-SSH_CONNECT_SCRIPT="./host-proxy-ssh.sh"
-echo "Generating SSH connection script template at $SSH_CONNECT_SCRIPT..."
-cat <<EOF > "$SSH_CONNECT_SCRIPT"
-#!/bin/sh
-# This script is invoked by host-proxy to establish the SSH tunnel.
+# 4. Assemble the guest bundle: connection script, pinned host key, and the
+#    private key it authenticates with.
+#
+#    The host address is not written into the script. Guests resolve it from
+#    their own default route, because the container gateway address depends on
+#    the networks configured for the host system and is not the same on every
+#    machine. Host identity is pinned separately, under a fixed alias, so a
+#    changing address cannot weaken verification.
+echo "Assembling guest connection bundle in $GUEST_DIR..."
+sh "$SCRIPT_DIR/host-connect-setup.sh" "$GUEST_DIR" --key "$GUEST_KEY_NAME" || exit 1
 
-# Change to the script's directory to ensure relative paths work.
-cd "\$(dirname "\$0")" || exit 1
+cp "$SSH_KEY_FILE" "$GUEST_DIR/ssh/$GUEST_KEY_NAME"
+chmod 600 "$GUEST_DIR/ssh/$GUEST_KEY_NAME"
 
-# Configure this with your host's gateway IP or DNS name:
-# - Standard Virtualization Gateway: 192.168.64.1
-# - Docker Desktop Gateway: host.docker.internal
-# - Standard Docker Bridge Gateway: 172.17.0.1
-HOST_IP="host-os.internal"
-
-exec ssh -q -T -o StrictHostKeyChecking=no -i "./host-wrapper_id_ed25519" "$USER@\$HOST_IP" host-wrapper
-EOF
-chmod +x "$SSH_CONNECT_SCRIPT"
+SSH_CONNECT_SCRIPT="$GUEST_DIR/host-proxy-ssh.sh"
 
 # This will install the host-wrapper to ~/.ssh.
 # It can equally well be installed e.g. to a project-specific location.
@@ -75,12 +77,22 @@ echo "2. Add the following line to your host's ~/.ssh/authorized_keys file:"
 echo ""
 echo "command=\"$GLOBAL_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
 echo ""
-echo "3. Copy the following client files into your container/guest:"
-echo "   - host-proxy (built via 'make host-proxy')"
-echo "   - $SSH_CONNECT_SCRIPT"
-echo "   - $SSH_KEY_FILE (the private key)"
+echo "3. Copy the contents of $GUEST_DIR into your container/guest,"
+echo "   alongside host-proxy (built inside the guest via 'make host-proxy'):"
 echo ""
-echo "4. Once inside the container, configure the connection script with your"
-echo "   host's gateway IP and run commands like:"
+echo "     host-proxy-ssh.sh          connection script"
+echo "     ssh/$GUEST_KEY_NAME  private key"
+echo "     ssh/known_hosts            pinned host key"
+echo "     ssh/host-wrapper.env       host user and key settings"
+echo ""
+echo "   Point host-proxy at the script if it is not next to the binary:"
+echo "     export HOST_PROXY_SSH_SCRIPT=/path/to/host-proxy-ssh.sh"
+echo ""
+echo "4. Run commands from inside the container:"
 echo "   ./host-proxy /usr/bin/uname"
+echo ""
+echo "   The host address is detected from the guest default route. If your"
+echo "   guest does not route to the host directly (Docker Desktop, for one),"
+echo "   set HOST_GATEWAY in ssh/host-wrapper.env, for example:"
+echo "     HOST_GATEWAY='host.docker.internal'"
 echo "--------------------------------------------------------"
