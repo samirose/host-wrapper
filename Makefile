@@ -7,7 +7,7 @@ LDLIBS =
 
 all: host-wrapper host-proxy
 
-.PHONY: all test test-connect fuzz fuzz-minimize clean
+.PHONY: all test test-connect check-posix fuzz fuzz-minimize clean
 
 host-wrapper: host-wrapper.c
 	$(CC) $(CFLAGS) -o $@ host-wrapper.c $(LDLIBS)
@@ -22,16 +22,24 @@ host-wrapper-test: host-wrapper.c
 host-proxy-test: host-proxy.c
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-proxy.c
 
-# Run the protocol test suite using the sanitized test binaries,
-# followed by the connection setup suite (no binaries required).
+# Run the protocol test suite using the sanitized test binaries, then the
+# connection setup suite (no binaries required), then the portability policy.
 test: host-wrapper-test host-proxy-test
 	HOST_WRAPPER=./host-wrapper-test HOST_PROXY=./host-proxy-test ./test.sh
 	./test-connect.sh
+	./check-posix.sh
 
 # Connection script and host key pinning tests. These stub out ssh and ip,
 # so they need neither a network nor a configured host.
 test-connect:
 	./test-connect.sh
+
+# Shell portability policy from AGENTS.md. Every /bin/sh script, and the guest
+# connection script that host-connect-setup.sh generates, has to run under a
+# strict POSIX shell, because the guest's /bin/sh is often busybox ash. Needs no
+# compiler; skips the shell-dependent checks if neither dash nor ash is present.
+check-posix:
+	./check-posix.sh
 
 # Fuzzing target
 # Note: This requires clang with libFuzzer support.

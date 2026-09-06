@@ -7,6 +7,7 @@ Working notes for AI coding agents and contributors in this repository.
     make                  # build host-wrapper and host-proxy
     make test             # protocol suite (sanitized binaries) + connection suite
     make test-connect     # connection and host key pinning suite only
+    make check-posix      # shell portability policy below, no compiler needed
     make fuzz             # libFuzzer target, requires clang
 
 `make test-connect` stubs out `ip` and `ssh`, so it needs neither a network, a
@@ -56,6 +57,9 @@ These only ever run on a developer's machine, so readability beats portability.
 Non-POSIX utilities are fine: `test-connect.sh` deliberately uses `mktemp` and
 `env -u`, neither of which POSIX specifies. Bash is fine too, when declared.
 
+`check-posix.sh` is the exception in this tier. It is written to tier 2 so that
+it checks itself, which keeps the enforcement honest.
+
 ### Rules for every tier
 
 - A script that uses bash features must declare `#!/usr/bin/env bash`. Never
@@ -68,6 +72,18 @@ Non-POSIX utilities are fine: `test-connect.sh` deliberately uses `mktemp` and
   POSIX `.` searches `PATH` for a name with no slash in it.
 
 ### Verifying
+
+Run `make check-posix`, which enforces everything above and is also part of
+`make test`. It needs no compiler, container or network.
+
+The target parses every `#!/bin/sh` script under a strict POSIX shell, greps for
+bashisms, generates a bundle into a scratch directory and checks the emitted
+guest script the same way, then runs the connection suite under that shell. If
+neither dash nor ash is installed it says so and skips the shell-dependent
+parts rather than failing, so a bare machine can still run `make test`.
+
+The rest of this section describes what it does, for checking something by hand
+or extending the target.
 
 macOS `/bin/sh` is bash in POSIX mode, so `sh -n` passing proves nothing about
 portability. Check against a real POSIX shell; macOS ships dash at `/bin/dash`.
