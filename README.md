@@ -134,6 +134,7 @@ There is a test script that test behaviour and key security features. The host-s
    - Standard input redirection from proxy to host is blocked by default for all allowed commands unless explicitly overridden in the allowlist using the `+stdin` option.
 4. **Resilient Shell/Injection Prevention**: The wrapper bypasses the shell completely by invoking processes directly using `execvp()`. There is no shell evaluation of arguments, preventing command-injection attacks.
 5. **Audit Logging**: Every execution attempt (both `ALLOWED` and `DENIED` actions) is logged to a host-side file with timestamps, target arguments, and client keys, allowing auditing of wrapper actions.
+6. **Pinned Host Identity**: The guest verifies the host's SSH host key against a `known_hosts` file written at provisioning time, filed under the fixed alias `host-wrapper` rather than under an address. Because verification does not depend on the address, the connection runs with `StrictHostKeyChecking=yes` even though the container gateway address varies between systems. Without the alias, an address that moves would either fail verification or force host key checking to be turned off, leaving the guest willing to hand its key to whatever answers at the old address.
 
 ### SECURITY DISCLAIMER
 I (the author) am an experienced software developer, but not a professional security expert. I have attempted to make this tool stand up to its security claims, but all risks associated with its use—particularly the risk of exposing the host operating system via allowlist misconfiguration—rest entirely with the user.
@@ -185,6 +186,7 @@ Before installing, ensure that your environments meet the following requirements
 - **C Compiler**: A standard C compiler inside the guest to compile the client-side binary natively for its target operating system and processor architecture.
 - **SSH Client**: An installed SSH client (e.g., `openssh-client` or equivalent) to establish the connection tunnel.
 - **POSIX Shell**: A standard POSIX-compliant shell (like `sh` or `bash`) to execute the connection script.
+- **Routing Tool**: The `ip` command (`iproute2`, or the BusyBox applet) so the connection script can read the guest's default route. Not needed if the host address is pinned explicitly via `HOST_GATEWAY`.
 
 ### 1. Build from Source
 Compile both components on your host:
@@ -203,7 +205,8 @@ bash setup.sh
 This script will:
 1. Initialize `$HOME/.config/host-wrapper/allowlist` with example content
 2. Generate a client key pair inside `$HOME/.ssh/host-wrapper_id_ed25519`
-3. Print the exact line to paste into your host's `$HOME/.ssh/authorized_keys` file, for example:
+3. Assemble a `./guest/` directory holding everything the guest needs: the connection script, the private key, this host's pinned public host key, and the host login name
+4. Print the exact line to paste into your host's `$HOME/.ssh/authorized_keys` file, for example:
 
 ```text
 command="/Users/YOUR_USER/.ssh/host-wrapper /Users/YOUR_USER/.config/host-wrapper/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAAC3... host-wrapper.key
@@ -214,10 +217,43 @@ Because host-proxy runs inside the guest container, it must be compiled for the 
 
 To install host-proxy inside the container:
 1. Compile the source code of `host-proxy.c` inside your guest container using the container's compiler.
-2. Copy the generated SSH private key into the container.
+2. Copy the contents of `./guest/` into the container next to the compiled binary:
+```text
+host-proxy-ssh.sh              connection script
+ssh/host-wrapper_id_ed25519    private key
+ssh/known_hosts                this host's public host key, pinned as "host-wrapper"
+ssh/host-wrapper.env           host login name and key paths
+```
+   If the script does not sit next to `host-proxy`, point at it with `HOST_PROXY_SSH_SCRIPT`.
 3. Invoke any command through the compiled guest proxy:
 ```bash
 ./host-proxy /usr/bin/uname
+```
+
+#### Reaching the Host
+
+The connection script does not carry a host address. The gateway address of a
+container is not a fixed value: on macOS native containers it depends on the
+networks configured for the system, so a value that works on one machine is
+wrong on the next. The script reads the guest's own default route at connection
+time instead.
+
+Set `HOST_GATEWAY` when the guest's default route does not lead to the host,
+either in `ssh/host-wrapper.env` or in the environment for a single run:
+
+```sh
+# ssh/host-wrapper.env
+HOST_GATEWAY='host.docker.internal'   # Docker Desktop on macOS/Windows
+```
+
+If the address cannot be determined the script fails with a diagnostic naming
+the `HOST_GATEWAY` override.
+
+Regenerate the guest files with `host-connect-setup.sh` if the host's SSH host
+key changes, since the guest verifies against the copy pinned at setup time:
+
+```bash
+sh host-connect-setup.sh ./guest --key host-wrapper_id_ed25519
 ```
 
 ---
