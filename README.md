@@ -153,6 +153,15 @@ While `host-wrapper` is originally designed with macOS development hosts in mind
 - **Linux**: Guest supported, host support untested. Compiling host-wrapper on glibc-based Linux distributions (e.g., Ubuntu, Debian, CentOS) requires linking the standard PTY library using `make LDLIBS="-lutil"`. Musl-based distributions (e.g., Alpine Linux) should compile natively without any flags.
 - **BSD Systems (FreeBSD, OpenBSD, NetBSD, DragonFly BSD)**: Includes compile-time support for standard BSD PTY layouts, but has not been formally tested.
 
+### Shell Script Portability
+
+The portability argument above applies to the shell scripts as well as to the C,
+though not uniformly. The connection script that runs inside the guest is strict
+POSIX shell depending only on `awk` and `ip`, so it runs unmodified under busybox
+`ash` in a scratch Alpine container. The host-side setup scripts are POSIX shell
+too, so they behave identically under dash, ash and bash. The test and example
+runner scripts are developer tooling and declare bash where they use it.
+
 ---
 
 ## Multi-Project Architecture
