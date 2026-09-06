@@ -122,3 +122,56 @@ in expected hits.
 A clean tree produces no output. Note that this greps the generator, not the
 guest script it emits; check that one by generating into a scratch directory and
 running `dash -n` over the result.
+
+## Commits
+
+Prefer several small commits to one large one. A reviewer should be able to hold
+a whole commit in their head, and a bisect should be able to land on one.
+
+- **One logical change per commit.** A new mechanism, the call sites migrated
+  onto it, and the documentation describing it are three changes, not one.
+- **Every commit stands on its own.** It builds, its tests pass, and the tree it
+  leaves behind works. A commit that only makes sense once a later one lands is
+  not a commit, it is half of one.
+- **A mechanism arrives with its tests.** Tests are part of introducing it, not
+  a follow-up. Migrating existing callers is the separate work, usually one
+  commit per caller or per area.
+- **Order so nothing dangles.** If a document refers to a make target, the
+  commit adding the target comes first or they land together. No intermediate
+  commit should point at something that does not exist yet.
+- **Say how to check it.** Name the target or the steps in the message, so a
+  reviewer can verify that commit alone: `make test-connect`, `make check-posix`.
+- Subject in the imperative mood. The body explains why; the diff already says
+  what.
+
+### Splitting a commit that grew too large
+
+Unpushed history is fair game, and a commit that is hard to review is worth
+rewriting. Never rewrite history that has been pushed.
+
+    git tag pre-split-backup HEAD   # safety net, delete once satisfied
+    git reset HEAD~1                # keep the changes, drop the commit
+
+Stage per file where the files map cleanly onto the logical changes; that is the
+common case and needs no hunk surgery. Where one file carries two changes, build
+the intermediate versions by hand, or use `git add -p`.
+
+A split has to preserve the result exactly. This must print nothing:
+
+    git diff pre-split-backup HEAD
+
+Then confirm each new commit stands alone, rather than assuming it does. Check
+out each in isolation and run the whole suite there, not one check from it:
+
+    for c in $(git log --format=%h <base>..HEAD); do
+        d=$(mktemp -d "${TMPDIR:-/tmp}/split.XXXXXX")
+        git archive "$c" | tar -x -C "$d"
+        (cd "$d" && make test >/dev/null 2>&1) || echo "BROKEN: $c"
+        rm -rf "$d"
+    done
+
+`make test` builds both binaries from source, runs the protocol and connection
+suites and applies the portability policy, so it answers the question the loop
+is asking. A narrower check would pass on a commit that leaves the tree unable
+to build. Where a commit predates a target it would otherwise need, run what
+that commit actually has.
