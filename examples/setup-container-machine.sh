@@ -40,26 +40,15 @@ if [ ! -f "$SSH_KEY_FILE" ]; then
     chmod 600 "$SSH_KEY_FILE"
 fi
 
-# 3. Generate a dynamic-gateway SSH Connection Script
+# 3. Generate the connection script, pin the host key, and record the host
+#    login user. The VM's gateway address is resolved from its default route
+#    at connection time, since it depends on the networks configured for the
+#    host system rather than being a fixed value.
+echo "[*] Generating connection assets in ./examples..."
+sh ./host-connect-setup.sh ./examples \
+    --key "$(basename "$SSH_KEY_FILE")" || exit 1
+
 SSH_CONNECT_SCRIPT="./examples/host-proxy-ssh.sh"
-echo "[*] Generating dynamic gateway connection script at $SSH_CONNECT_SCRIPT..."
-cat <<'EOF' > "$SSH_CONNECT_SCRIPT"
-#!/bin/sh
-# This script is invoked by host-proxy inside the Apple Container Machine.
-
-# Change to the script's directory to ensure relative paths work.
-cd "$(dirname "$0")" || exit 1
-
-# Dynamically detect the host VM gateway IP address (the default gateway)
-HOST_GATEWAY=$(ip route show default 2>/dev/null | awk '/default/ {print $3}')
-if [ -z "$HOST_GATEWAY" ]; then
-    # Fallback to standard Virtualization.framework gateway IP if ip route fails
-    HOST_GATEWAY="192.168.64.1"
-fi
-
-exec ssh -q -T -o StrictHostKeyChecking=no -i "./ssh/id_ed25519_machine" "$USER@$HOST_GATEWAY" host-wrapper
-EOF
-chmod +x "$SSH_CONNECT_SCRIPT"
 
 GLOBAL_WRAPPER_PATH="$HOME/.ssh/host-wrapper"
 ABS_ALLOWLIST_PATH="$(pwd)/$ALLOWLIST_FILE"
@@ -84,4 +73,14 @@ echo "     --home-mount none"
 echo ""
 echo "4. Copy client files and build host-proxy inside your container:"
 echo "   (Or simply run 'bash examples/run-container-machine.sh' to fully automate this!)"
+echo ""
+echo "The generated assets are in ./examples: host-proxy-ssh.sh with the key,"
+echo "ssh/known_hosts and ssh/host-wrapper.env beside it. Copy them into the"
+echo "guest as a unit; the script resolves ./ssh/known_hosts relative to its"
+echo "own directory, so where they land in the guest does not matter. The"
+echo "host key is pinned under the alias 'host-wrapper' rather than by"
+echo "address, so the gateway may differ between machines without host key"
+echo "checking having to be disabled. Re-run this script if the host key"
+echo "changes; run-container-machine.sh builds its own bundle and does not"
+echo "need that step."
 echo "--------------------------------------------------------"

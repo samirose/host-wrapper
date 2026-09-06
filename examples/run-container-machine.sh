@@ -78,21 +78,14 @@ mkdir -p "$GUEST_SHARE_DIR/ssh"
 
 cp host-proxy.c "$GUEST_SHARE_DIR/host-proxy.c"
 cp Makefile "$GUEST_SHARE_DIR/Makefile"
+
+# Generate the connection script, the host key pin, and the host settings.
+# The host login name has to be recorded here, on the host: inside the VM the
+# guest's own user is root, which is almost never the account to log in as.
+./host-connect-setup.sh "$GUEST_SHARE_DIR" --key id_ed25519_machine
+
 cp "$SSH_KEY_FILE" "$GUEST_SHARE_DIR/ssh/id_ed25519_machine"
 chmod 600 "$GUEST_SHARE_DIR/ssh/id_ed25519_machine"
-
-# Write guest SSH script
-cat <<'EOF' > "$GUEST_SHARE_DIR/host-proxy-ssh.sh"
-#!/bin/sh
-cd "$(dirname "$0")" || exit 1
-HOST_GATEWAY=$(ip route show default 2>/dev/null | awk '/default/ {print $3}')
-if [ -z "$HOST_GATEWAY" ]; then
-    HOST_GATEWAY="192.168.64.1"
-fi
-GUEST_USER="${USER:-$(whoami)}"
-exec ssh -q -T -o StrictHostKeyChecking=no -i "./ssh/id_ed25519_machine" "$GUEST_USER@$HOST_GATEWAY" host-wrapper
-EOF
-chmod +x "$GUEST_SHARE_DIR/host-proxy-ssh.sh"
 
 # 5. Boot or create the Container Machine
 echo "[*] Provisioning Container Machine '$CONTAINER_MACHINE_NAME'..."
