@@ -261,4 +261,22 @@ else
     report "Generator rejects an unreadable host key" yes
 fi
 
+# The connection script is installed from share/host-proxy-ssh.sh next to the
+# generator, so a generator copied out on its own has nothing to install.
+cp "$GENERATOR" "$TEST_DIR/lonely-generator.sh"
+if sh "$TEST_DIR/lonely-generator.sh" "$TEST_DIR/lonely" \
+    --host-key "$HOST_KEY_PUB" >/dev/null 2>&1; then
+    report "Generator without its connection script fails" no
+else
+    report "Generator without its connection script fails" yes
+fi
+
+# That check runs before the first write, so nothing is left half-provisioned.
+if [ -e "$TEST_DIR/lonely" ]; then
+    report "A failed run leaves no partial bundle" no \
+        "  $(ls "$TEST_DIR/lonely")"
+else
+    report "A failed run leaves no partial bundle" yes
+fi
+
 test_summary
