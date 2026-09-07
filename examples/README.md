@@ -16,7 +16,10 @@ This example demonstrates integration with a virtualized guest VM running under 
 
 ### Scripts
 - **setup-container-machine.sh**: Generates a dedicated guest keypair under `examples/ssh/id_ed25519_container-machine`, then calls `host-connect-setup.sh` to produce the connection script, the pinned host key, and the host settings.
-- **run-container-machine.sh**: Automates VM provisioning, packages client components, pipes them into the isolated VM over a standard input stream with tar, builds the guest binary, and executes an integration test suite.
+- **run-container-machine.sh**: Automates VM provisioning, packages client components, pipes them into the isolated VM over a standard input stream with tar, builds the guest binary, and runs the integration suite.
+- **test-container-machine.sh**: The integration suite itself, run against a provisioned machine. `run-container-machine.sh` calls it, and it can also be run on its own against a machine that is already up:
+
+        bash examples/test-container-machine.sh
 
 ### Architecture
 Since Apple's Container Machine VM currently supports only home directory mounting, `--home-mount none` is configured for guest isolation. The workspace is archived locally on the host, piped to the guest through standard input, and extracted to a working directory inside the running guest, from where the guest can compile the proxy and start to access the host commands on the allow list.
