@@ -4,17 +4,14 @@
 # This script tests the logic and protocol of host-proxy and host-wrapper 
 # locally without requiring a full SSH setup.
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m' # No Color
+. "$(dirname "$0")/test-lib.sh"
 
 # Ensure binaries are provided or use defaults
 HOST_PROXY="${HOST_PROXY:-./host-proxy}"
 HOST_WRAPPER="${HOST_WRAPPER:-./host-wrapper}"
 
 # Setup isolated environment
-TEST_DIR=$(mktemp -d)
+make_test_dir host-wrapper-protocol
 cp "$HOST_PROXY" "$TEST_DIR/host-proxy"
 cp "$HOST_WRAPPER" "$TEST_DIR/host-wrapper"
 
@@ -41,9 +38,6 @@ exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 EOF
 chmod +x "host-proxy-ssh.sh"
 
-pass_count=0
-fail_count=0
-
 # Internal base function for all tests
 # Usage: _run_test_base <name> <expected_exit_type> <expected_out> <stdin_data> <cmd...>
 # expected_exit_type: "zero" or "nonzero"
@@ -53,8 +47,6 @@ _run_test_base() {
     local expected_out="$3"
     local stdin_data="$4"
     shift 4
-
-    echo -n "Test: $name... "
 
     local actual_out
     if [ -n "$stdin_data" ]; then
@@ -77,19 +69,21 @@ _run_test_base() {
         out_pass=true
     fi
 
+    local detail=""
+    if [ "$exit_pass" = false ]; then
+        detail="  Exit Code Error (Expected $exit_type, Actual $exit_code)"
+    fi
+    if [ "$out_pass" = false ]; then
+        [ -n "$detail" ] && detail="$detail
+"
+        detail="$detail  Expected output to contain: $expected_out
+  Actual Output: $actual_out"
+    fi
+
     if [ "$out_pass" = true ] && [ "$exit_pass" = true ]; then
-        echo -e "${GREEN}PASS${NC}"
-        pass_count=$((pass_count + 1))
+        report "$name" yes
     else
-        echo -e "${RED}FAIL${NC}"
-        if [ "$exit_pass" = false ]; then
-            echo "  Exit Code Error (Expected $exit_type, Actual $exit_code)"
-        fi
-        if [ "$out_pass" = false ]; then
-            echo "  Expected output to contain: $expected_out"
-            echo "  Actual Output: $actual_out"
-        fi
-        fail_count=$((fail_count + 1))
+        report "$name" no "$detail"
     fi
 }
 
@@ -135,7 +129,6 @@ run_test_pipe "Header too long limit" "Error: Argument too long (999999 bytes)" 
 run_test_pipe "Header digits overflow" "Error: Netstring length too long" "12345678901234567890:toobig," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 9: Verify no-hang when host command finishes but stdin is still open
-echo -n "Test: No-hang on open stdin... "
 FIFO="./test_fifo"
 mkfifo "$FIFO"
 
@@ -153,17 +146,14 @@ sleep 0.5
 if ! kill -0 $PROXY_PID 2>/dev/null; then
     # Process is gone, check output
     if grep -q "Darwin" "no_hang_out"; then
-        echo -e "${GREEN}PASS${NC}"
-        pass_count=$((pass_count + 1))
+        report "No-hang on open stdin" yes
     else
-        echo -e "${RED}FAIL${NC} (Unexpected output)"
-        fail_count=$((fail_count + 1))
+        report "No-hang on open stdin" no "  Unexpected output: $(cat no_hang_out)"
     fi
 else
-    echo -e "${RED}FAIL${NC} (Hanging)"
     kill $PROXY_PID 2>/dev/null
     wait $PROXY_PID 2>/dev/null
-    fail_count=$((fail_count + 1))
+    report "No-hang on open stdin" no "  Still running: an open stdin kept the proxy alive"
 fi
 
 # Cleanup FIFO
@@ -172,7 +162,6 @@ wait $WRITER_PID 2>/dev/null
 rm "$FIFO"
 
 # Scenario 10: SIGPIPE resilience in parent
-echo -n "Test: SIGPIPE resilience... "
 # We simulate a wrapper crash by temporarily bypassing the real wrapper and 
 # piping directly into a process that instantly exits.
 cat <<EOF > "host-proxy-ssh.sh"
@@ -189,14 +178,11 @@ OUT=$($LOCAL_HOST_PROXY /usr/bin/ls $ARGS 2>&1 </dev/null)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 141 ] && [ $EXIT_CODE -ne 0 ]; then
-    echo -e "${GREEN}PASS${NC}"
-    pass_count=$((pass_count + 1))
+    report "SIGPIPE resilience" yes
 else
-    echo -e "${RED}FAIL${NC}"
-    echo "  Expected proxy to handle SIGPIPE and return normal error code (not 141 or 0)"
-    echo "  Actual Exit Code: $EXIT_CODE"
-    echo "  Actual Output: $OUT"
-    fail_count=$((fail_count + 1))
+    report "SIGPIPE resilience" no "  Expected proxy to handle SIGPIPE and return normal error code (not 141 or 0)
+  Actual Exit Code: $EXIT_CODE
+  Actual Output: $OUT"
 fi
 
 # Scenario 11: Invalid argc (0 or negative)
@@ -232,7 +218,6 @@ run_test_pipe "Long allowlist line match" "execvp: No such file or directory" "5
 
 # Scenario 17: Context-aware Working Directory (chdir)
 # Create a subdirectory, move allowlist there, and verify 'pwd' starts in that directory
-echo -n "Test: Context-aware Working Directory (chdir)... "
 mkdir -p ./subdir
 SUB_ALLOWLIST="./subdir/allowlist"
 cat <<EOF > "$SUB_ALLOWLIST"
@@ -246,18 +231,9 @@ ACTUAL_PWD=$("$(pwd)/host-wrapper" "$SUB_ALLOWLIST" <<EOF 2>&1
 EOF
 )
 
-if [[ "$ACTUAL_PWD" == *"/subdir"* ]]; then
-    echo -e "${GREEN}PASS${NC}"
-    pass_count=$((pass_count + 1))
-else
-    echo -e "${RED}FAIL${NC}"
-    echo "  Expected pwd output to contain '/subdir'"
-    echo "  Actual Output: $ACTUAL_PWD"
-    fail_count=$((fail_count + 1))
-fi
+assert_contains "Context-aware Working Directory (chdir)" "$ACTUAL_PWD" "/subdir"
 
 # Scenario 18: Verify stdout/stderr separation
-echo -n "Test: Stdout/Stderr separation... "
 # Restore the real ssh shim
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
@@ -279,19 +255,15 @@ OUT_VAL=$(cat "$OUT_FILE")
 ERR_VAL=$(cat "$ERR_FILE")
 
 if [ "$OUT_VAL" == "OUT_DATA" ] && [ "$ERR_VAL" == "ERR_DATA" ]; then
-    echo -e "${GREEN}PASS${NC}"
-    pass_count=$((pass_count + 1))
+    report "Stdout/Stderr separation" yes
 else
-    echo -e "${RED}FAIL${NC}"
-    echo "  Expected stdout: OUT_DATA, Actual: $OUT_VAL"
-    echo "  Expected stderr: ERR_DATA, Actual: $ERR_VAL"
-    fail_count=$((fail_count + 1))
+    report "Stdout/Stderr separation" no "  Expected stdout: OUT_DATA, Actual: $OUT_VAL
+  Expected stderr: ERR_DATA, Actual: $ERR_VAL"
 fi
 
 # Scenario 19: Verify +stdin restriction
 # Verify that a command without +stdin receives 0 bytes (EOF)
 # We add /usr/bin/wc (without +stdin) to a temporary allowlist, set up a stub ssh, and run it
-echo -n "Test: Stdin restriction (no +stdin option)... "
 TEMP_ALLOWLIST="./temp_allowlist"
 cat <<EOF > "$TEMP_ALLOWLIST"
 /usr/bin/wc
@@ -306,13 +278,10 @@ EOF
 ACTUAL_OUT=$(echo -n "hello stream" | "$LOCAL_HOST_PROXY" /usr/bin/wc -c 2>&1)
 # Because wc lacks +stdin, it should receive EOF and print 0
 if [[ "$ACTUAL_OUT" == *"0"* ]] && [[ "$ACTUAL_OUT" != *"12"* ]]; then
-    echo -e "${GREEN}PASS${NC}"
-    pass_count=$((pass_count + 1))
+    report "Stdin restriction (no +stdin option)" yes
 else
-    echo -e "${RED}FAIL${NC}"
-    echo "  Expected wc -c to print 0"
-    echo "  Actual Output: $ACTUAL_OUT"
-    fail_count=$((fail_count + 1))
+    report "Stdin restriction (no +stdin option)" no "  Expected wc -c to print 0
+  Actual Output: $ACTUAL_OUT"
 fi
 
 # Restore the original allowlist and stub ssh
@@ -321,15 +290,4 @@ cat <<EOF > "host-proxy-ssh.sh"
 exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 EOF
 
-# Cleanup Environment
-cd - > /dev/null
-rm -rf "$TEST_DIR"
-
-echo "----------------------------------------"
-echo "Results: $pass_count passed, $fail_count failed"
-echo "----------------------------------------"
-
-if [ $fail_count -gt 0 ]; then
-    exit 1
-fi
-exit 0
+test_summary
