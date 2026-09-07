@@ -7,6 +7,8 @@
 # stub `ip` and `ssh` binaries are placed ahead of the real ones on PATH, the
 # script is run, and the argument vector the stub `ssh` receives is asserted on.
 
+. "$(dirname "$0")/test-lib.sh"
+
 GENERATOR="${GENERATOR:-./host-connect-setup.sh}"
 
 if [ ! -f "$GENERATOR" ]; then
@@ -15,19 +17,7 @@ if [ ! -f "$GENERATOR" ]; then
 fi
 GENERATOR=$(cd "$(dirname "$GENERATOR")" && pwd)/$(basename "$GENERATOR")
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-pass_count=0
-fail_count=0
-
-TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/host-wrapper-connect.XXXXXX")
-if [ -z "$TEST_DIR" ] || [ ! -d "$TEST_DIR" ]; then
-    echo "Error: could not create a temporary directory (check TMPDIR)."
-    exit 1
-fi
-trap 'rm -rf "$TEST_DIR"' EXIT INT TERM
+make_test_dir host-wrapper-connect
 
 # A fixture host key, so the suite never depends on this machine's /etc/ssh.
 ssh-keygen -t ed25519 -f "$TEST_DIR/host_key" -N "" -q -C "fixture.host.key"
@@ -59,56 +49,6 @@ printf '%s' "$IP_ROUTE_FIXTURE"
 STUB_EOF
 
 chmod +x "$STUB_BIN/ssh" "$STUB_BIN/ip"
-
-report() {
-    name="$1"
-    ok="$2"
-    detail="$3"
-    if [ "$ok" = "yes" ]; then
-        printf "Test: %s... ${GREEN}PASS${NC}\n" "$name"
-        pass_count=$((pass_count + 1))
-    else
-        printf "Test: %s... ${RED}FAIL${NC}\n" "$name"
-        [ -n "$detail" ] && printf '%s\n' "$detail"
-        fail_count=$((fail_count + 1))
-    fi
-}
-
-assert_contains() {
-    name="$1"
-    haystack="$2"
-    needle="$3"
-    case "$haystack" in
-        *"$needle"*) report "$name" yes ;;
-        *) report "$name" no "  Expected to find: $needle
-  In output:
-$haystack" ;;
-    esac
-}
-
-assert_not_contains() {
-    name="$1"
-    haystack="$2"
-    needle="$3"
-    case "$haystack" in
-        *"$needle"*) report "$name" no "  Expected NOT to find: $needle
-  In output:
-$haystack" ;;
-        *) report "$name" yes ;;
-    esac
-}
-
-assert_equals() {
-    name="$1"
-    actual="$2"
-    expected="$3"
-    if [ "$actual" = "$expected" ]; then
-        report "$name" yes
-    else
-        report "$name" no "  Expected: $expected
-  Actual:   $actual"
-    fi
-}
 
 # Generate a guest directory. Extra arguments go to the generator.
 make_guest() {
@@ -321,8 +261,4 @@ else
     report "Generator rejects an unreadable host key" yes
 fi
 
-echo "----------------------------------------"
-echo "Results: $pass_count passed, $fail_count failed"
-echo "----------------------------------------"
-
-[ "$fail_count" -eq 0 ]
+test_summary
