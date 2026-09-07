@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 # Test Suite for Host-Container Command Proxy
 # This script tests the logic and protocol of host-proxy and host-wrapper 
@@ -42,21 +42,20 @@ chmod +x "host-proxy-ssh.sh"
 # Usage: _run_test_base <name> <expected_exit_type> <expected_out> <stdin_data> <cmd...>
 # expected_exit_type: "zero" or "nonzero"
 _run_test_base() {
-    local name="$1"
-    local exit_type="$2"
-    local expected_out="$3"
-    local stdin_data="$4"
+    name="$1"
+    exit_type="$2"
+    expected_out="$3"
+    stdin_data="$4"
     shift 4
 
-    local actual_out
     if [ -n "$stdin_data" ]; then
-        actual_out=$(echo -n "$stdin_data" | "$@" 2>&1)
+        actual_out=$(printf '%s' "$stdin_data" | "$@" 2>&1)
     else
         actual_out=$("$@" </dev/null 2>&1)
     fi
-    local exit_code=$?
+    exit_code=$?
 
-    local exit_pass=false
+    exit_pass=false
     if [ "$exit_type" = "zero" ] && [ $exit_code -eq 0 ]; then
         exit_pass=true
     elif [ "$exit_type" = "nonzero" ] && [ $exit_code -ne 0 ]; then
@@ -64,12 +63,16 @@ _run_test_base() {
     fi
 
     # Allow empty expected_out to mean "don't care about output"
-    local out_pass=false
-    if [ -z "$expected_out" ] || [[ "$actual_out" == *"$expected_out"* ]]; then
+    out_pass=false
+    if [ -z "$expected_out" ]; then
         out_pass=true
+    else
+        case "$actual_out" in
+            *"$expected_out"*) out_pass=true ;;
+        esac
     fi
 
-    local detail=""
+    detail=""
     if [ "$exit_pass" = false ]; then
         detail="  Exit Code Error (Expected $exit_type, Actual $exit_code)"
     fi
@@ -87,16 +90,23 @@ _run_test_base() {
     fi
 }
 
-# Public test runners
-run_test() { _run_test_base "$1" "zero" "$2" "$3" "${@:4}"; }
-run_test_fail() { _run_test_base "$1" "nonzero" "$2" "$3" "${@:4}"; }
+# Public test runners. Shifting the name off leaves the remaining arguments in
+# the order _run_test_base wants them, which POSIX has no ${@:4} for.
+run_test() {
+    _name="$1"
+    shift
+    _run_test_base "$_name" "zero" "$@"
+}
+run_test_fail() {
+    _name="$1"
+    shift
+    _run_test_base "$_name" "nonzero" "$@"
+}
 # Used for piping raw protocol data into wrapper
 run_test_pipe() {
-    local name="$1"
-    local expected_out="$2"
-    local stdin_data="$3"
-    shift 3
-    _run_test_base "$name" "nonzero" "$expected_out" "$stdin_data" "$@"
+    _name="$1"
+    shift
+    _run_test_base "$_name" "nonzero" "$@"
 }
 
 # Scenario 1: Basic command execution
@@ -170,8 +180,13 @@ exit 1
 EOF
 
 # Generate 1000 arguments to ensure the parent writes enough data to hit the broken pipe.
-LONG_ARG=$(printf 'A%.0s' {1..1000})
-ARGS=$(printf "$LONG_ARG %.0s" {1..1000})
+LONG_ARG=$(printf '%1000s' '' | tr ' ' 'A')
+ARGS=""
+i=0
+while [ "$i" -lt 1000 ]; do
+    ARGS="$ARGS $LONG_ARG"
+    i=$((i + 1))
+done
 
 # Run the proxy. It should fail with exit code 1 (from the ssh script), not 141 (SIGPIPE).
 OUT=$($LOCAL_HOST_PROXY /usr/bin/ls $ARGS 2>&1 </dev/null)
@@ -203,16 +218,16 @@ run_test_pipe "Premature EOF" "Error: Malformed netstring (expected ',')" "2:1,1
 # Use OS max path limit divided into valid NAME_MAX chunks, plus a long comment
 SYS_MAX=$(getconf PATH_MAX / 2>/dev/null || echo 1024)
 TARGET_LEN=$((SYS_MAX - 50))
-CHUNK=$(printf 'A%.0s' {1..200})
+CHUNK=$(printf '%200s' '' | tr ' ' 'A')
 
 LONG_PATH="/usr/bin"
 while [ ${#LONG_PATH} -lt $TARGET_LEN ]; do
     LONG_PATH="$LONG_PATH/$CHUNK"
 done
 # Trim to exact length just to be clean
-LONG_PATH="${LONG_PATH:0:$TARGET_LEN}"
+LONG_PATH=$(printf '%s' "$LONG_PATH" | cut -c "1-$TARGET_LEN")
 
-LONG_COMMENT=$(printf 'C%.0s' {1..2000})
+LONG_COMMENT=$(printf '%2000s' '' | tr ' ' 'C')
 echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
 run_test_pipe "Long allowlist line match" "execvp: No such file or directory" "5:80,24,1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
@@ -254,7 +269,7 @@ ERR_FILE="./stderr_capture"
 OUT_VAL=$(cat "$OUT_FILE")
 ERR_VAL=$(cat "$ERR_FILE")
 
-if [ "$OUT_VAL" == "OUT_DATA" ] && [ "$ERR_VAL" == "ERR_DATA" ]; then
+if [ "$OUT_VAL" = "OUT_DATA" ] && [ "$ERR_VAL" = "ERR_DATA" ]; then
     report "Stdout/Stderr separation" yes
 else
     report "Stdout/Stderr separation" no "  Expected stdout: OUT_DATA, Actual: $OUT_VAL
@@ -275,14 +290,17 @@ cat <<EOF > "host-proxy-ssh.sh"
 exec "$LOCAL_HOST_WRAPPER" "$TEMP_ALLOWLIST"
 EOF
 
-ACTUAL_OUT=$(echo -n "hello stream" | "$LOCAL_HOST_PROXY" /usr/bin/wc -c 2>&1)
+ACTUAL_OUT=$(printf '%s' "hello stream" | "$LOCAL_HOST_PROXY" /usr/bin/wc -c 2>&1)
 # Because wc lacks +stdin, it should receive EOF and print 0
-if [[ "$ACTUAL_OUT" == *"0"* ]] && [[ "$ACTUAL_OUT" != *"12"* ]]; then
-    report "Stdin restriction (no +stdin option)" yes
-else
-    report "Stdin restriction (no +stdin option)" no "  Expected wc -c to print 0
-  Actual Output: $ACTUAL_OUT"
-fi
+case "$ACTUAL_OUT" in
+    *12*) report "Stdin restriction (no +stdin option)" no \
+        "  wc -c saw the stdin data, so +stdin was not required
+  Actual Output: $ACTUAL_OUT" ;;
+    *0*) report "Stdin restriction (no +stdin option)" yes ;;
+    *) report "Stdin restriction (no +stdin option)" no \
+        "  Expected wc -c to print 0
+  Actual Output: $ACTUAL_OUT" ;;
+esac
 
 # Restore the original allowlist and stub ssh
 cat <<EOF > "host-proxy-ssh.sh"

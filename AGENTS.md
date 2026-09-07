@@ -66,7 +66,14 @@ where choosing them costs nothing.
 
 These only ever run on a developer's machine, so readability beats portability.
 Non-POSIX utilities are fine: `test-connect.sh` deliberately uses `mktemp` and
-`env -u`, neither of which POSIX specifies. Bash is fine too, when declared.
+`env -u` and `test.sh` a fractional `sleep`, none of which POSIX specifies. Bash
+is fine too, when declared.
+
+The two suites nonetheless declare `#!/bin/sh`. The tier does not ask for it;
+they are POSIX because `test-lib.sh` has to be, and a harness written in one
+dialect is easier to move a helper around in than one written in two. Declaring
+it is what puts them under `check-posix.sh`, which is what keeps them that way.
+The example runners are bash and stay bash.
 
 `check-posix.sh` and `test-lib.sh` are the exceptions in this tier; both are
 written to tier 2. `check-posix.sh` is, so that it checks itself, which keeps
@@ -106,9 +113,11 @@ Both the parse and the grep are needed, and neither subsumes the other: dash
 parses `[[ -n "$x" ]]` quite happily, as a command named `[[`, so `dash -n`
 alone lets that through and only the grep catches it.
 
-Parse every `sh` script, and the generated guest script too:
+Parse every `sh` script, and the generated guest script too. Select by shebang
+here as well, so the set does not go stale as scripts are added:
 
-    for f in setup.sh host-connect-setup.sh test-connect.sh examples/setup-*.sh; do
+    for f in *.sh examples/*.sh; do
+        [ "$(head -n 1 "$f")" = "#!/bin/sh" ] || continue
         dash -n "$f" || echo "FAIL $f"
     done
 
@@ -130,8 +139,8 @@ parameter expansion pattern deliberately excludes `:-` and `:=`, both POSIX:
     done
 
 Test the first line rather than using `grep -l`, which would match the
-`#!/bin/sh` heredocs embedded inside the bash test scripts and drown the result
-in expected hits.
+`#!/bin/sh` heredocs embedded inside the test scripts and drown the result in
+expected hits.
 
 A clean tree produces no output. Note that this greps the generator, not the
 guest script it emits; check that one by generating into a scratch directory and
