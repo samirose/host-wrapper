@@ -19,6 +19,11 @@ fi
 
 CONTAINER_MACHINE_NAME="${1:-example-container-machine}"
 
+# The log this example writes, beside its own allowlist. Deliberately not the
+# one belonging to a generic setup.sh install: that one is a different example's
+# evidence and says nothing about this run.
+AUDIT_LOG="./examples/config/host-wrapper.log"
+
 echo "=================================================="
 echo "Running End-to-End Guest-to-Host Integration Tests"
 echo "=================================================="
@@ -64,18 +69,29 @@ run_integration_test_fail() {
     fi
 }
 
+# Sample the audit log before anything connects. The log accumulates across
+# runs, so only growth during this run says the host actually logged anything.
+audit_lines() {
+    if [ -f "$AUDIT_LOG" ]; then
+        wc -l < "$AUDIT_LOG" | tr -d ' '
+    else
+        echo 0
+    fi
+}
+audit_before=$(audit_lines)
+
 run_integration_test "Retrieve Host OS (uname)" "Darwin" "" /usr/bin/uname
 run_integration_test "Space preservation (printf)" "[arg with space]" "" /usr/bin/printf "[%s]\\n" "\"arg with space\""
 run_integration_test "Forwarding Stdin stream (wc)" "12" "hello stream" /usr/bin/wc -c
 run_integration_test_fail "Blocked command validation (id)" "not in allowlist" /usr/bin/id
 
-if grep -q "DENIED " "./config/host-wrapper.log" 2>/dev/null || grep -q "DENIED " "$HOME/.config/host-wrapper/host-wrapper.log" 2>/dev/null || grep -q "ALLOWED" "./config/host-wrapper.log" 2>/dev/null || grep -q "ALLOWED" "$HOME/.config/host-wrapper/host-wrapper.log" 2>/dev/null; then
-    report "Verify Host Audit Logging" yes
-elif grep -q "ALLOWED" "/tmp/host-wrapper.log" 2>/dev/null; then
-    # Fall back to the standard /tmp log
+audit_after=$(audit_lines)
+if [ "$audit_after" -gt "$audit_before" ]; then
     report "Verify Host Audit Logging" yes
 else
-    report "Verify Host Audit Logging" no "  Log files missing or empty"
+    report "Verify Host Audit Logging" no "  No entries added to $AUDIT_LOG during this run
+  ($audit_before lines before, $audit_after after)
+  An ALLOWED or DENIED line should have been written by each test above."
 fi
 
 GUEST_HOME_FILES=$(container machine run -n "$CONTAINER_MACHINE_NAME" -- ls -la /Users /home 2>/dev/null)
