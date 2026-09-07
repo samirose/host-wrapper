@@ -34,6 +34,31 @@ This example demonstrates how to run an isolated Nix development environment in 
 ### Architecture
 This container mounts the `examples/container_project` directory as its active working directory. The project Nix flake (`examples/container_project/flake.nix`) packages `host-proxy` and developer tools into a self-contained OCI container image (`oci-image`). Both Docker image streaming (`docker-stream`) and native OCI archives (`oci-image`) are provided by the flake outputs.
 
+### Running the image under Docker
+
+`run-container.sh` builds the `oci-image` output because Apple's `container`
+loads OCI archives only. Docker reads the Docker image format, so it takes the
+`docker-stream` output and skips the conversion:
+
+    sh examples/setup-container.sh
+    IMAGE=$(nix build --no-link --print-out-paths \
+        --override-input host-wrapper "path:$PWD" \
+        "path:$PWD/examples/container_project#docker-stream")
+    "$IMAGE" | docker load
+    docker run -it --rm \
+        --mount "type=bind,source=$PWD/examples/container_project,target=/project" \
+        example-container:latest
+
+`setup-container.sh` runs first because the image expects the connection script
+and the key it writes to be present in the mounted `/project`. The
+`--override-input` supplies the repository at the path the flake's
+`host-wrapper` input names, which is where the builder container mounts it.
+
+The flake builds Linux images only, so a macOS or Windows host needs a Linux
+builder. It also needs `HOST_GATEWAY` set as described under Reaching the Host,
+because a Docker Desktop guest's default route reaches the Linux VM rather than
+the host.
+
 ---
 
 ## Reaching the Host
