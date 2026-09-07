@@ -14,6 +14,17 @@ Working notes for AI coding agents and contributors in this repository.
 container, nor a configured host. Building on glibc Linux needs
 `make LDLIBS="-lutil"`.
 
+### The test harness
+
+Both suites source `test-lib.sh`, which holds `report`, the `assert_*` helpers,
+`make_test_dir` and `test_summary`. Add a case by calling those rather than
+printing PASS and FAIL by hand: a test written through them counts towards the
+tally and towards the suite's exit status with nothing further to remember.
+
+`make_test_dir <prefix>` publishes `$TEST_DIR` and registers the trap that
+removes it. Both suites do all of their work inside it, so a run leaves nothing
+behind in the repository, including a run that is interrupted half way.
+
 ## Shell script portability
 
 The C is written to POSIX because the guest may be a scratch Alpine container.
@@ -57,8 +68,11 @@ These only ever run on a developer's machine, so readability beats portability.
 Non-POSIX utilities are fine: `test-connect.sh` deliberately uses `mktemp` and
 `env -u`, neither of which POSIX specifies. Bash is fine too, when declared.
 
-`check-posix.sh` is the exception in this tier. It is written to tier 2 so that
-it checks itself, which keeps the enforcement honest.
+`check-posix.sh` and `test-lib.sh` are the exceptions in this tier; both are
+written to tier 2. `check-posix.sh` is, so that it checks itself, which keeps
+the enforcement honest. `test-lib.sh` is, because `check-posix.sh` runs
+`test-connect.sh` under dash, and whatever that suite sources runs under dash
+with it.
 
 ### Rules for every tier
 
