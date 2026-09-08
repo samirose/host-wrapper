@@ -3,7 +3,9 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    host-wrapper.url = "path:/host-wrapper";
+    # run-container.sh overrides this with --override-input to build the
+    # checkout it is run from.
+    host-wrapper.url = "github:samirose/host-wrapper";
   };
 
   outputs = { self, nixpkgs, host-wrapper }:

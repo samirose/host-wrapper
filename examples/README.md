@@ -54,8 +54,8 @@ loads OCI archives only. Docker reads the Docker image format, so it takes the
 
 `setup-container.sh` runs first because the image expects the connection script
 and the key it writes to be present in the mounted `/project`. The
-`--override-input` supplies the repository at the path the flake's
-`host-wrapper` input names, which is where the builder container mounts it.
+`--override-input` builds the checkout you are in; without it `host-proxy`
+comes from the flake's `host-wrapper` input on GitHub.
 
 The flake builds Linux images only, so a macOS or Windows host needs a Linux
 builder. It also needs `HOST_GATEWAY` set as described under Reaching the Host,
