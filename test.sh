@@ -48,49 +48,68 @@ exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 EOF
 chmod +x "host-proxy-ssh.sh"
 
+# Where the runners below put each stream. Kept apart rather than merged with
+# 2>&1, so a message arriving on the wrong stream is a failure the suite can
+# see.
+CAPTURE_OUT="./capture-stdout"
+CAPTURE_ERR="./capture-stderr"
+
 # Internal base function for all tests
-# Usage: _run_test_base <name> <expected_exit_type> <expected_out> <stdin_data> <cmd...>
-# expected_exit_type: "zero" or "nonzero"
+# Usage: _run_test_base <name> <expected_exit> <stream> <expected_out> <stdin_data> <cmd...>
+#
+# expected_exit: "zero", "nonzero", or an exact status such as 126.
+# stream:        "out", "err" or "both" -- which capture expected_out has to
+#                appear in. An empty expected_out matches anything.
 _run_test_base() {
     name="$1"
-    exit_type="$2"
-    expected_out="$3"
-    stdin_data="$4"
-    shift 4
+    expected_exit="$2"
+    stream="$3"
+    expected_out="$4"
+    stdin_data="$5"
+    shift 5
 
     if [ -n "$stdin_data" ]; then
-        actual_out=$(printf '%s' "$stdin_data" | "$@" 2>&1)
+        printf '%s' "$stdin_data" | "$@" >"$CAPTURE_OUT" 2>"$CAPTURE_ERR"
     else
-        actual_out=$("$@" </dev/null 2>&1)
+        "$@" </dev/null >"$CAPTURE_OUT" 2>"$CAPTURE_ERR"
     fi
     exit_code=$?
 
-    exit_pass=false
-    if [ "$exit_type" = "zero" ] && [ $exit_code -eq 0 ]; then
-        exit_pass=true
-    elif [ "$exit_type" = "nonzero" ] && [ $exit_code -ne 0 ]; then
-        exit_pass=true
-    fi
+    actual_out=$(cat "$CAPTURE_OUT")
+    actual_err=$(cat "$CAPTURE_ERR")
+    case "$stream" in
+        out) haystack="$actual_out" ;;
+        err) haystack="$actual_err" ;;
+        *)   haystack="$actual_out
+$actual_err" ;;
+    esac
 
-    # Allow empty expected_out to mean "don't care about output"
+    exit_pass=false
+    case "$expected_exit" in
+        zero)    [ "$exit_code" -eq 0 ] && exit_pass=true ;;
+        nonzero) [ "$exit_code" -ne 0 ] && exit_pass=true ;;
+        *)       [ "$exit_code" -eq "$expected_exit" ] && exit_pass=true ;;
+    esac
+
     out_pass=false
     if [ -z "$expected_out" ]; then
         out_pass=true
     else
-        case "$actual_out" in
+        case "$haystack" in
             *"$expected_out"*) out_pass=true ;;
         esac
     fi
 
     detail=""
     if [ "$exit_pass" = false ]; then
-        detail="  Exit Code Error (Expected $exit_type, Actual $exit_code)"
+        detail="  Exit code: expected $expected_exit, actual $exit_code"
     fi
     if [ "$out_pass" = false ]; then
         [ -n "$detail" ] && detail="$detail
 "
-        detail="$detail  Expected output to contain: $expected_out
-  Actual Output: $actual_out"
+        detail="$detail  Expected on $stream: $expected_out
+  stdout: $actual_out
+  stderr: $actual_err"
     fi
 
     if [ "$out_pass" = true ] && [ "$exit_pass" = true ]; then
@@ -105,18 +124,25 @@ _run_test_base() {
 run_test() {
     _name="$1"
     shift
-    _run_test_base "$_name" "zero" "$@"
+    _run_test_base "$_name" zero out "$@"
 }
 run_test_fail() {
     _name="$1"
     shift
-    _run_test_base "$_name" "nonzero" "$@"
+    _run_test_base "$_name" nonzero err "$@"
 }
 # Used for piping raw protocol data into wrapper
 run_test_pipe() {
     _name="$1"
     shift
-    _run_test_base "$_name" "nonzero" "$@"
+    _run_test_base "$_name" nonzero err "$@"
+}
+# run_test_exit <name> <expected_code> <expected_err> <stdin_data> <cmd...>
+run_test_exit() {
+    _name="$1"
+    _code="$2"
+    shift 2
+    _run_test_base "$_name" "$_code" err "$@"
 }
 
 # Scenario 1: Basic command execution
@@ -137,7 +163,7 @@ run_test "Multi-args" "arg1-arg2" "" "$LOCAL_HOST_PROXY" /usr/bin/printf "%s-%s\
 # Scenario 5.5: Exit code propagation
 # /usr/bin/false always exits with 1. We must add it to the allowlist first.
 echo "/usr/bin/false" >> "$ALLOWLIST"
-run_test_fail "Exit code propagation" "" "" "$LOCAL_HOST_PROXY" /usr/bin/false
+run_test_exit "Exit code propagation" 1 "" "" "$LOCAL_HOST_PROXY" /usr/bin/false
 
 # Scenario 6: Malformed header
 run_test_pipe "Malformed header" "Error: Malformed netstring" "malformed" "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"

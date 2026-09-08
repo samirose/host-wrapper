@@ -25,6 +25,12 @@ tally and towards the suite's exit status with nothing further to remember.
 removes it. Both suites do all of their work inside it, so a run leaves nothing
 behind in the repository, including a run that is interrupted half way.
 
+`test.sh` adds runners on top: `run_test` (exit 0, matched on stdout),
+`run_test_fail` and `run_test_pipe` (nonzero, matched on stderr) and
+`run_test_exit <name> <code>` for an exact status. They capture the two streams
+separately, so state which stream a message belongs on rather than reaching for
+`2>&1` — a message on the wrong stream is a defect the suite should see.
+
 ## Shell script portability
 
 The C is written to POSIX because the guest may be a scratch Alpine container.
