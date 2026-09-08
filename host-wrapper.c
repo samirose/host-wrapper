@@ -53,6 +53,25 @@
  * Logs an error to stderr. If FUZZING is defined, this is a no-op 
  * to ensure the fuzzer runs at maximum speed without I/O blocking.
  */
+/**
+ * Writes all of buf, retrying a partial write and EINTR. Returns 0, or -1 with
+ * some of the data unwritten.
+ */
+int write_all(int fd, const void *buf, size_t count) {
+    const char *ptr = buf;
+    size_t written = 0;
+    while (written < count) {
+        ssize_t w = write(fd, ptr + written, count - written);
+        if (w < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (w == 0) break;
+        written += (size_t)w;
+    }
+    return (written == count) ? 0 : -1;
+}
+
 void log_error(const char *format, ...) {
 #ifndef FUZZING
     va_list args;
@@ -453,7 +472,10 @@ int execute_command_with_pty(char **target_argv, int target_argc, TerminalSize t
         if (fds[0].fd != -1 && (fds[0].revents & POLLIN)) {
             ssize_t n = read(master_out, buf, sizeof(buf));
             if (n > 0) {
-                (void)write(STDOUT_FILENO, buf, (size_t)n);
+                if (write_all(STDOUT_FILENO, buf, (size_t)n) == -1) {
+                    log_error("write stdout: %s\n", strerror(errno));
+                    break;
+                }
             } else {
                 fds[0].fd = -1;
                 open_streams--;
@@ -464,7 +486,10 @@ int execute_command_with_pty(char **target_argv, int target_argc, TerminalSize t
         if (fds[1].fd != -1 && (fds[1].revents & POLLIN)) {
             ssize_t n = read(master_err, buf, sizeof(buf));
             if (n > 0) {
-                (void)write(STDERR_FILENO, buf, (size_t)n);
+                if (write_all(STDERR_FILENO, buf, (size_t)n) == -1) {
+                    log_error("write stderr: %s\n", strerror(errno));
+                    break;
+                }
             } else {
                 fds[1].fd = -1;
                 open_streams--;
