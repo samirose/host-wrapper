@@ -22,6 +22,9 @@
 
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE
+// glibc and musl hide cfmakeraw and openpty behind this once _POSIX_C_SOURCE
+// is set; both are BSD extensions rather than POSIX.
+#define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +34,7 @@
 #include <libgen.h>
 #include <time.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <termios.h>
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
 #include <util.h>
