@@ -23,22 +23,47 @@ ALLOWLIST="./allowlist"
 LOCAL_HOST_PROXY="./host-proxy"
 LOCAL_HOST_WRAPPER="./host-wrapper"
 
-# The suite runs on whichever host it is checked out on, so resolve uname
-# rather than assuming where it lives or what it prints. Everything else the
-# scenarios use sits at the same path on macOS and Linux.
-UNAME_BIN=$(command -v uname)
-case "$UNAME_BIN" in
-    /*) ;;
-    *) echo "Error: could not resolve uname to an absolute path." >&2; exit 1 ;;
-esac
+# The allowlist matches verbatim, so a scenario has to name the binary the
+# wrapper will exec, and that path differs per system.
+#
+# PATH is searched directly: `command -v` answers with a bare name for printf,
+# pwd and false, all three being shell builtins.
+find_bin() {
+    _found=""
+    _oldifs="$IFS"
+    IFS=:
+    for _dir in $PATH; do
+        [ -n "$_dir" ] || _dir="."
+        if [ -x "$_dir/$1" ] && [ ! -d "$_dir/$1" ]; then
+            _found="$_dir/$1"
+            break
+        fi
+    done
+    IFS="$_oldifs"
+    case "$_found" in
+        /*) printf '%s' "$_found" ;;
+        *) echo "Error: the suite needs $1 on PATH as an absolute path." >&2
+           exit 1 ;;
+    esac
+}
+
+UNAME_BIN=$(find_bin uname)
+PRINTF_BIN=$(find_bin printf)
+WC_BIN=$(find_bin wc)
+ID_BIN=$(find_bin id)
+FALSE_BIN=$(find_bin false)
+CAT_BIN=$(find_bin cat)
+SH_BIN=$(find_bin sh)
+PWD_BIN=$(find_bin pwd)
+LS_BIN=$(find_bin ls)
 UNAME_OUT=$(uname -s)
 
 # 1. Create a dummy allowlist with safe, benign commands
 cat <<EOF > "$ALLOWLIST"
 $UNAME_BIN
-/usr/bin/printf
-/usr/bin/wc +stdin
-/bin/cat +stdin
+$PRINTF_BIN
+$WC_BIN +stdin
+$CAT_BIN +stdin
 EOF
 
 # 2. Create a stub SSH script that pipes directly to host-wrapper.
@@ -150,21 +175,21 @@ run_test_exit() {
 run_test "Basic execution (uname)" "$UNAME_OUT" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
 
 # Scenario 2: Argument with spaces
-run_test "Spaces in args" "[hello space]" "" "$LOCAL_HOST_PROXY" /usr/bin/printf "[%s]\n" "hello space"
+run_test "Spaces in args" "[hello space]" "" "$LOCAL_HOST_PROXY" "$PRINTF_BIN" "[%s]\n" "hello space"
 
 # Scenario 3: Stdin forwarding (using wc -c to count bytes)
-run_test "Stdin piping (wc)" "12" "hello stream" "$LOCAL_HOST_PROXY" /usr/bin/wc -c
+run_test "Stdin piping (wc)" "12" "hello stream" "$LOCAL_HOST_PROXY" "$WC_BIN" -c
 
 # Scenario 4: Command NOT in allowlist
-run_test_fail "Blocked command" "Error: Command '/usr/bin/id' not in allowlist" "" "$LOCAL_HOST_PROXY" /usr/bin/id
+run_test_fail "Blocked command" "Error: Command '$ID_BIN' not in allowlist" "" "$LOCAL_HOST_PROXY" "$ID_BIN"
 
 # Scenario 5: Multiple arguments
-run_test "Multi-args" "arg1-arg2" "" "$LOCAL_HOST_PROXY" /usr/bin/printf "%s-%s\n" arg1 arg2
+run_test "Multi-args" "arg1-arg2" "" "$LOCAL_HOST_PROXY" "$PRINTF_BIN" "%s-%s\n" arg1 arg2
 
 # Scenario 5.5: Exit code propagation
-# /usr/bin/false always exits with 1. We must add it to the allowlist first.
-echo "/usr/bin/false" >> "$ALLOWLIST"
-run_test_exit "Exit code propagation" 1 "" "" "$LOCAL_HOST_PROXY" /usr/bin/false
+# false always exits with 1. We must add it to the allowlist first.
+echo "$FALSE_BIN" >> "$ALLOWLIST"
+run_test_exit "Exit code propagation" 1 "" "" "$LOCAL_HOST_PROXY" "$FALSE_BIN"
 
 # Scenario 6: Malformed header
 run_test_pipe "Malformed header" "Error: Malformed netstring" "malformed" "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
@@ -226,7 +251,7 @@ while [ "$i" -lt 1000 ]; do
 done
 
 # Run the proxy. It should fail with exit code 1 (from the ssh script), not 141 (SIGPIPE).
-OUT=$($LOCAL_HOST_PROXY /usr/bin/ls $ARGS 2>&1 </dev/null)
+OUT=$($LOCAL_HOST_PROXY "$LS_BIN" $ARGS 2>&1 </dev/null)
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 141 ] && [ $EXIT_CODE -ne 0 ]; then
@@ -274,13 +299,13 @@ run_test_pipe "Long allowlist line match" "execvp: No such file or directory" "5
 mkdir -p ./subdir
 SUB_ALLOWLIST="./subdir/allowlist"
 cat <<EOF > "$SUB_ALLOWLIST"
-/bin/pwd
+$PWD_BIN
 EOF
 
 # Run host-wrapper with the subdirectory allowlist. 
 # It should chdir into ./subdir before executing pwd.
 ACTUAL_PWD=$("$(pwd)/host-wrapper" "$SUB_ALLOWLIST" <<EOF 2>&1
-5:80,24,1:1,8:/bin/pwd,
+5:80,24,1:1,${#PWD_BIN}:$PWD_BIN,
 EOF
 )
 
@@ -294,15 +319,15 @@ exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 EOF
 chmod +x "host-proxy-ssh.sh"
 
-# Add /bin/sh to allowlist for this test
-echo "/bin/sh" >> "$ALLOWLIST"
+# Add sh to the allowlist for this test
+echo "$SH_BIN" >> "$ALLOWLIST"
 
 OUT_FILE="./stdout_capture"
 ERR_FILE="./stderr_capture"
 
 # Run a command that writes to both streams
-# Note: we use /bin/sh -c '...' to produce distinct output
-"$LOCAL_HOST_PROXY" /bin/sh -c 'echo "OUT_DATA"; echo "ERR_DATA" >&2' > "$OUT_FILE" 2> "$ERR_FILE"
+# Note: we use sh -c '...' to produce distinct output
+"$LOCAL_HOST_PROXY" "$SH_BIN" -c 'echo "OUT_DATA"; echo "ERR_DATA" >&2' > "$OUT_FILE" 2> "$ERR_FILE"
 
 OUT_VAL=$(cat "$OUT_FILE")
 ERR_VAL=$(cat "$ERR_FILE")
@@ -316,10 +341,10 @@ fi
 
 # Scenario 19: Verify +stdin restriction
 # Verify that a command without +stdin receives 0 bytes (EOF)
-# We add /usr/bin/wc (without +stdin) to a temporary allowlist, set up a stub ssh, and run it
+# We add wc (without +stdin) to a temporary allowlist, set up a stub ssh, and run it
 TEMP_ALLOWLIST="./temp_allowlist"
 cat <<EOF > "$TEMP_ALLOWLIST"
-/usr/bin/wc
+$WC_BIN
 EOF
 
 # Point our ssh stub to the wrapper using the temp allowlist
@@ -328,7 +353,7 @@ cat <<EOF > "host-proxy-ssh.sh"
 exec "$LOCAL_HOST_WRAPPER" "$TEMP_ALLOWLIST"
 EOF
 
-ACTUAL_OUT=$(printf '%s' "hello stream" | "$LOCAL_HOST_PROXY" /usr/bin/wc -c 2>&1)
+ACTUAL_OUT=$(printf '%s' "hello stream" | "$LOCAL_HOST_PROXY" "$WC_BIN" -c 2>&1)
 # Because wc lacks +stdin, it should receive EOF and print 0
 case "$ACTUAL_OUT" in
     *12*) report "Stdin restriction (no +stdin option)" no \
@@ -357,7 +382,7 @@ awk 'BEGIN {
     for (i = 0; i < 4096; i++) print line
 }' > "$LARGE_IN"
 
-"$LOCAL_HOST_PROXY" /bin/cat < "$LARGE_IN" > "$LARGE_OUT" 2> "$CAPTURE_ERR"
+"$LOCAL_HOST_PROXY" "$CAT_BIN" < "$LARGE_IN" > "$LARGE_OUT" 2> "$CAPTURE_ERR"
 large_code=$?
 
 in_size=$(wc -c < "$LARGE_IN" | tr -d ' ')
