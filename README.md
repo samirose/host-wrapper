@@ -304,4 +304,4 @@ This project is released under the MIT License.
 
 ## AI Tooling Disclosure
 
-Development and documentation were assisted by Gemini CLI and the Google Antigravity CLI. Architecture, source code, and documentation was audited, refined, and reviewed by the author.
+Development and documentation were assisted by Gemini CLI, Google Antigravity CLI and Claude Code. Architecture, source code, and documentation was audited, refined, and reviewed by the author.
