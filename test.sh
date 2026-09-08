@@ -38,6 +38,7 @@ cat <<EOF > "$ALLOWLIST"
 $UNAME_BIN
 /usr/bin/printf
 /usr/bin/wc +stdin
+/bin/cat +stdin
 EOF
 
 # 2. Create a stub SSH script that pipes directly to host-wrapper.
@@ -344,5 +345,34 @@ cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
 exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 EOF
+
+# Scenario 20: Large output integrity
+# 256 KB round-tripped through the wrapper, compared by size and checksum. A
+# substring match cannot see a discarded tail, which is what the PTY poll loop
+# is suspected of producing.
+LARGE_IN="./large-in"
+LARGE_OUT="./large-out"
+awk 'BEGIN {
+    line = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde"
+    for (i = 0; i < 4096; i++) print line
+}' > "$LARGE_IN"
+
+"$LOCAL_HOST_PROXY" /bin/cat < "$LARGE_IN" > "$LARGE_OUT" 2> "$CAPTURE_ERR"
+large_code=$?
+
+in_size=$(wc -c < "$LARGE_IN" | tr -d ' ')
+out_size=$(wc -c < "$LARGE_OUT" | tr -d ' ')
+in_sum=$(cksum < "$LARGE_IN" | cut -d' ' -f1)
+out_sum=$(cksum < "$LARGE_OUT" | cut -d' ' -f1)
+
+if [ "$large_code" -eq 0 ] && [ "$out_size" = "$in_size" ] && [ "$out_sum" = "$in_sum" ]; then
+    report "Large output integrity ($in_size bytes)" yes
+else
+    report "Large output integrity ($in_size bytes)" no \
+        "  Exit code: $large_code
+  Bytes:     sent $in_size, received $out_size
+  Checksum:  sent $in_sum, received $out_sum
+  stderr:    $(cat "$CAPTURE_ERR")"
+fi
 
 test_summary
