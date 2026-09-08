@@ -180,6 +180,16 @@ reader arriving today should not have to parse what it used to do.
 - **Say it once and stop.** Cut what the reader already knows, and leave failure
   modes to the test that reports them.
 
+### Comments
+
+The rules above hold for comments in code as well, and one more with them:
+
+- **Do not explain the tooling.** Whoever reads this repository knows what a
+  lock file pins, what `set -e` does, and what a Nix devShell is. Comment what
+  they cannot derive: why this list, why this order, what breaks without it.
+- **Two accurate lines beat six.** If a comment restates the code beneath it,
+  the restating half is what to cut.
+
 ## Commits
 
 Prefer several small commits to one large one. A reviewer should be able to hold
