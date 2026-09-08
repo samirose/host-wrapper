@@ -57,5 +57,26 @@
           default = self.packages.${system}.host-proxy;
         }
       );
+
+      # What `make test` needs. The suites resolve commands from PATH, so
+      # this list is what they exercise.
+      devShells = forAllSystems (system:
+        let
+          pkgs = import nixpkgs { inherit system; };
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [
+              pkgs.gnumake
+              pkgs.coreutils   # uname, printf, wc, cat, cksum, mktemp, mkfifo
+              pkgs.gawk
+              pkgs.gnugrep
+              pkgs.gnused
+              pkgs.dash        # the POSIX shell check-posix.sh holds scripts to
+              pkgs.openssh     # ssh-keygen, for the connection suite fixtures
+            ];
+          };
+        }
+      );
     };
 }
