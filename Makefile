@@ -17,7 +17,7 @@ host-proxy: host-proxy.c
 
 # Test binaries with sanitizers
 host-wrapper-test: host-wrapper.c
-	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-wrapper.c
+	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-wrapper.c $(LDLIBS)
 
 host-proxy-test: host-proxy.c
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-proxy.c
@@ -44,7 +44,7 @@ check-posix:
 # Fuzzing target
 # Note: This requires clang with libFuzzer support.
 host-wrapper-fuzzer: host-wrapper.c fuzz.c
-	$(CLANG) $(CFLAGS) -DFUZZING -fsanitize=fuzzer,address -o $@ host-wrapper.c fuzz.c
+	$(CLANG) $(CFLAGS) -DFUZZING -fsanitize=fuzzer,address -o $@ host-wrapper.c fuzz.c $(LDLIBS)
 
 fuzz: host-wrapper-fuzzer fuzz.dict
 	mkdir -p corpus
