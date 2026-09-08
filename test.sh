@@ -23,9 +23,19 @@ ALLOWLIST="./allowlist"
 LOCAL_HOST_PROXY="./host-proxy"
 LOCAL_HOST_WRAPPER="./host-wrapper"
 
+# The suite runs on whichever host it is checked out on, so resolve uname
+# rather than assuming where it lives or what it prints. Everything else the
+# scenarios use sits at the same path on macOS and Linux.
+UNAME_BIN=$(command -v uname)
+case "$UNAME_BIN" in
+    /*) ;;
+    *) echo "Error: could not resolve uname to an absolute path." >&2; exit 1 ;;
+esac
+UNAME_OUT=$(uname -s)
+
 # 1. Create a dummy allowlist with safe, benign commands
 cat <<EOF > "$ALLOWLIST"
-/usr/bin/uname
+$UNAME_BIN
 /usr/bin/printf
 /usr/bin/wc +stdin
 EOF
@@ -110,7 +120,7 @@ run_test_pipe() {
 }
 
 # Scenario 1: Basic command execution
-run_test "Basic execution (uname)" "Darwin" "" "$LOCAL_HOST_PROXY" /usr/bin/uname
+run_test "Basic execution (uname)" "$UNAME_OUT" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
 
 # Scenario 2: Argument with spaces
 run_test "Spaces in args" "[hello space]" "" "$LOCAL_HOST_PROXY" /usr/bin/printf "[%s]\n" "hello space"
@@ -148,14 +158,14 @@ mkfifo "$FIFO"
 WRITER_PID=$!
 
 # Start host-proxy in background reading from FIFO
-$LOCAL_HOST_PROXY /usr/bin/uname < "$FIFO" > "no_hang_out" 2>&1 &
+$LOCAL_HOST_PROXY "$UNAME_BIN" < "$FIFO" > "no_hang_out" 2>&1 &
 PROXY_PID=$!
 
 # Wait a short moment to see if it exits (uname should be instant)
 sleep 0.5
 if ! kill -0 $PROXY_PID 2>/dev/null; then
     # Process is gone, check output
-    if grep -q "Darwin" "no_hang_out"; then
+    if grep -q "$UNAME_OUT" "no_hang_out"; then
         report "No-hang on open stdin" yes
     else
         report "No-hang on open stdin" no "  Unexpected output: $(cat no_hang_out)"
@@ -207,8 +217,9 @@ run_test_pipe "Invalid argc (0)" "Error: Invalid target argc (0)" "5:80,24,1:0,"
 run_test_pipe "Argc too large" "Error: Invalid target argc (1025)" "5:80,24,4:1025," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 13: Partial match in allowlist (prefix/suffix)
-# We want to ensure '/usr/bin/un' doesn't match '/usr/bin/uname'
-run_test_pipe "Allowlist prefix match" "Error: Command '/usr/bin/un' not in allowlist" "5:80,24,1:1,11:/usr/bin/un," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+# A prefix of an allowlisted path must not match it.
+UNAME_PREFIX=${UNAME_BIN%??}
+run_test_pipe "Allowlist prefix match" "Error: Command '$UNAME_PREFIX' not in allowlist" "5:80,24,1:1,${#UNAME_PREFIX}:$UNAME_PREFIX," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 14: Premature EOF in netstring data
 # Header says 1 byte, but we send '1' and then close without the comma.
