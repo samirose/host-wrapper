@@ -171,6 +171,8 @@ reader arriving today should not have to parse what it used to do.
 - **Word the same fact the same way everywhere.** Where two files explain the
   same thing, they should not drift into two descriptions a reader has to
   reconcile.
+- **Say it once and stop.** Cut what the reader already knows, and leave failure
+  modes to the test that reports them.
 
 ## Commits
 
@@ -192,6 +194,8 @@ a whole commit in their head, and a bisect should be able to land on one.
   reviewer can verify that commit alone: `make test-connect`, `make check-posix`.
 - Subject in the imperative mood. The body explains why; the diff already says
   what.
+- **Keep the body short.** Bulleted main points by default. Prose only where
+  something is complex or non-obvious enough to need it.
 
 ### Splitting a commit that grew too large
 
