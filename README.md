@@ -28,6 +28,7 @@ A lightweight command-execution gateway designed to bridge isolated development 
   - [2. Host-Side Installation](#2-host-side-installation)
   - [3. Client-Side Integration](#3-client-side-integration)
 - [Integration Examples](#integration-examples)
+- [Running the Tests](#running-the-tests)
 - [Omitted Features and Intended Constraints](#omitted-features-and-intended-constraints)
 - [Possible Future Development](#possible-future-development)
 - [License](#license)
@@ -275,6 +276,28 @@ The repository includes example templates under the [`examples/`](examples/) dir
   Sets up an Alpine VM running with home directory isolation (`--home-mount none`). It uses a memory-buffered `tar` pipe to transfer the `host-proxy` source code and client key into the guest, builds `host-proxy` inside the VM, and runs an integration test suite.
 - **Nix Standard Container (examples/run-container.sh)**:
   Launches a Nix container environment. It bind-mounts the root `host-wrapper` directory read-only, allowing the guest's development Nix flake to natively build and install `host-proxy` inside the guest environment.
+
+---
+
+## Running the Tests
+
+```bash
+make test           # protocol suite, connection suite, portability policy
+make test-connect   # connection setup only, needs no compiler
+make check-posix    # shell portability policy
+make fuzz           # 60-second libFuzzer run, needs clang
+make test-linux     # protocol suite on Linux, in a container (macOS only)
+```
+
+The suite is meant to pass on a macOS host and on a Linux host. `make
+test-linux` covers the second from a Mac, through Apple's `container`.
+
+- `Large output integrity` fails under `make test-linux` today: the PTY poll
+  loop can discard a buffered tail when the target exits.
+- On glibc older than 2.34, `openpty` lives in libutil:
+  `make test LDLIBS=-lutil`.
+- `examples/test-container-machine.sh` needs a provisioned Container Machine and
+  is not part of `make test`.
 
 ---
 
