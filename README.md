@@ -286,11 +286,13 @@ make test           # protocol suite, connection suite, portability policy
 make test-connect   # connection setup only, needs no compiler
 make check-posix    # shell portability policy
 make fuzz           # 60-second libFuzzer run, needs clang
-make test-linux     # protocol suite on Linux, in a container (macOS only)
+make test-linux     # the whole suite on Linux, in a container (macOS only)
 ```
 
 The suite is meant to pass on a macOS host and on a Linux host. `make
-test-linux` covers the second from a Mac, through Apple's `container`.
+test-linux` covers the second from a Mac: Apple's `container` for the Linux
+kernel, the flake's devShell for the toolchain, so the versions come from
+`flake.lock` rather than from whatever the image ships.
 
 - `Large output integrity` fails under `make test-linux` today: the PTY poll
   loop can discard a buffered tail when the target exits.
