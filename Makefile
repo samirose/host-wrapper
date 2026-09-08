@@ -2,12 +2,16 @@ CC = cc
 CFLAGS = -Wall -Wextra -O2
 CLANG = clang
 
+# Linux image for `make test-linux`. Needs a conventional userland at /bin and
+# /usr/bin: the suite allowlists commands by absolute path.
+LINUX_TEST_IMAGE = alpine
+
 # Overridable linker flags (e.g. override via: make LDLIBS="-lutil" on Linux glibc)
 LDLIBS =
 
 all: host-wrapper host-proxy
 
-.PHONY: all test test-connect check-posix fuzz fuzz-minimize clean
+.PHONY: all test test-connect test-linux check-posix fuzz fuzz-minimize clean
 
 host-wrapper: host-wrapper.c
 	$(CC) $(CFLAGS) -o $@ host-wrapper.c $(LDLIBS)
@@ -33,6 +37,24 @@ test: host-wrapper-test host-proxy-test
 # so they need neither a network nor a configured host.
 test-connect:
 	./test-connect.sh
+
+# Run the protocol suite on Linux, where the PTY poll loop behaves differently
+# from Darwin's. macOS only: it goes through Apple's container CLI, whose
+# containers are Linux VMs. On Linux, plain `make test` already covers this.
+#
+# The connection and portability suites are left out: neither is OS-specific,
+# and both want tools this image does not carry.
+test-linux:
+	@[ "$$(uname -s)" = Darwin ] || { echo "test-linux: macOS only. Run 'make test'."; exit 1; }
+	@command -v container >/dev/null 2>&1 || { echo "test-linux: needs Apple's container CLI."; exit 1; }
+	container run --rm \
+	    --mount "type=bind,source=$(CURDIR),target=/src,readonly=true" \
+	    $(LINUX_TEST_IMAGE) sh -c '\
+	        set -e; \
+	        apk add --no-cache build-base >/dev/null; \
+	        mkdir /app && cp /src/*.c /src/*.sh /src/Makefile /app/ && cd /app; \
+	        make host-wrapper host-proxy >/dev/null; \
+	        HOST_WRAPPER=./host-wrapper HOST_PROXY=./host-proxy ./test.sh'
 
 # Shell portability policy from AGENTS.md. Every /bin/sh script, and the guest
 # connection script that host-connect-setup.sh generates, has to run under a
