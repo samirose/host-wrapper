@@ -125,13 +125,21 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
     // Ignore SIGPIPE so processes can handle broken pipes via return values
     signal(SIGPIPE, SIG_IGN);
 
-    // Get terminal size of the invoking environment
+    // Get terminal size of the invoking environment. Any of the three standard
+    // descriptors will do, and all three have to be tried: piping input into a
+    // command leaves stdin a pipe while the terminal is still on stdout, and
+    // probing stdin alone would report the 80x24 default to a target that is
+    // about to draw on a terminal of some other size.
     struct winsize ws;
     int cols = 80;
     int rows = 24;
-    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
-        cols = ws.ws_col;
-        rows = ws.ws_row;
+    int probe[] = { STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO };
+    for (size_t i = 0; i < sizeof(probe) / sizeof(probe[0]); i++) {
+        if (ioctl(probe[i], TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
+            cols = ws.ws_col;
+            rows = ws.ws_row;
+            break;
+        }
     }
     char winsize_str[32];
     snprintf(winsize_str, sizeof(winsize_str), "%d,%d", cols, rows);

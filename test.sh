@@ -15,6 +15,18 @@ make_test_dir host-wrapper-protocol
 cp "$HOST_PROXY" "$TEST_DIR/host-proxy"
 cp "$HOST_WRAPPER" "$TEST_DIR/host-wrapper"
 
+# Compiled by `make test`. winsize-probe is a target the wrapper runs; run-on-pty
+# is the harness that puts a terminal on a stream of host-proxy's, which a suite
+# written in shell has no other way to do.
+TEST_HELPER_DIR="${TEST_HELPER_DIR:-$(dirname "$0")/tests}"
+for helper in winsize-probe run-on-pty; do
+    if [ ! -x "$TEST_HELPER_DIR/$helper" ]; then
+        echo "Error: $TEST_HELPER_DIR/$helper is missing. Run 'make test'." >&2
+        exit 1
+    fi
+    cp "$TEST_HELPER_DIR/$helper" "$TEST_DIR/$helper"
+done
+
 # Move into isolated directory to prevent touching repo files
 cd "$TEST_DIR" || exit 1
 
@@ -64,6 +76,7 @@ $UNAME_BIN
 $PRINTF_BIN
 $WC_BIN +stdin
 $CAT_BIN +stdin
+$TEST_DIR/winsize-probe
 EOF
 
 # 2. Create a stub SSH script that pipes directly to host-wrapper.
@@ -399,5 +412,18 @@ else
   Checksum:  sent $in_sum, received $out_sum
   stderr:    $(cat "$CAPTURE_ERR")"
 fi
+
+# Scenario 21: Window size with stdin redirected
+# The size has to come off stdout or stderr once stdin is not a terminal, which
+# is the ordinary case for a piped or redirected invocation. run-on-pty gives
+# host-proxy a 120x40 terminal on stdout and stderr and relays what comes back.
+WINSIZE_OUT=$(./run-on-pty 120 40 "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe" \
+    < "$LARGE_IN" 2> "$CAPTURE_ERR")
+assert_equals "Window size survives a redirected stdin" "$WINSIZE_OUT" "120,40"
+
+# Scenario 22: Window size with no terminal on any stream
+"$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe" \
+    < /dev/null > "$CAPTURE_OUT" 2> "$CAPTURE_ERR"
+assert_equals "Window size defaults without a terminal" "$(cat "$CAPTURE_OUT")" "80,24"
 
 test_summary

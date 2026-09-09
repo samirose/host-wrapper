@@ -28,3 +28,7 @@ examples/container_project/flake.lock
 
 # Temporary Release Plan
 RELEASE_PLAN.md
+
+# Compiled test helpers
+tests/winsize-probe
+tests/run-on-pty

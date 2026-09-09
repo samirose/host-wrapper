@@ -9,6 +9,10 @@ LINUX_TEST_IMAGE = ghcr.io/nixos/nix
 # Overridable linker flags (e.g. override via: make LDLIBS="-lutil" on Linux glibc)
 LDLIBS =
 
+# C helpers the protocol suite runs: a target that reports the window size it
+# was handed, and a harness that supplies one over a PTY.
+TEST_HELPERS = tests/winsize-probe tests/run-on-pty
+
 all: host-wrapper host-proxy
 
 .PHONY: all test test-connect test-linux check-posix fuzz fuzz-minimize clean
@@ -26,9 +30,15 @@ host-wrapper-test: host-wrapper.c
 host-proxy-test: host-proxy.c
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-proxy.c
 
+tests/winsize-probe: tests/winsize-probe.c
+	$(CC) $(CFLAGS) -o $@ tests/winsize-probe.c $(LDLIBS)
+
+tests/run-on-pty: tests/run-on-pty.c
+	$(CC) $(CFLAGS) -o $@ tests/run-on-pty.c $(LDLIBS)
+
 # Run the protocol test suite using the sanitized test binaries, then the
 # connection setup suite (no binaries required), then the portability policy.
-test: host-wrapper-test host-proxy-test
+test: host-wrapper-test host-proxy-test $(TEST_HELPERS)
 	HOST_WRAPPER=./host-wrapper-test HOST_PROXY=./host-proxy-test ./test.sh
 	./test-connect.sh
 	./check-posix.sh
@@ -79,5 +89,6 @@ fuzz-minimize: host-wrapper-fuzzer
 
 clean:
 	rm -f host-wrapper host-proxy host-wrapper-fuzzer host-wrapper-test host-proxy-test
+	rm -f $(TEST_HELPERS)
 	rm -rf corpus_min
 	rm -f crash-* leak-* timeout-* oom-*
