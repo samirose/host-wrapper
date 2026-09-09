@@ -380,7 +380,39 @@ int change_to_allowlist_dir(const char *allowlist_path) {
     free(path_copy);
     return 0;
 }
+
 #ifndef FUZZING
+
+/**
+ * Forwards everything readable on a PTY master to out_fd. Returns 1 once the
+ * stream is finished, 0 while it may still yield more, -1 on a write failure.
+ * master_fd must be O_NONBLOCK: a pass ends on EAGAIN, which a blocking read
+ * would never report.
+ *
+ * Linux raises POLLHUP on a master as soon as the slave closes, with whatever
+ * the target wrote still buffered behind it, so only a read may retire a
+ * stream. A drained master reports EIO on Linux and a zero read on macOS; both
+ * mean end of output.
+ */
+static int drain_pty(int master_fd, int out_fd, const char *name) {
+    unsigned char buf[4096];
+
+    for (;;) {
+        ssize_t n = read(master_fd, buf, sizeof(buf));
+        if (n > 0) {
+            if (write_all(out_fd, buf, (size_t)n) == -1) {
+                log_error("write %s: %s\n", name, strerror(errno));
+                return -1;
+            }
+            continue;
+        }
+        if (n == 0) return 1;
+        if (errno == EINTR) continue;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+        return 1;
+    }
+}
+
 /**
  * Spawns the target process inside dual PTY streams (stdout and stderr separated)
  * and enters a poll loop to forward output. Returns the target command's exit code.
@@ -404,6 +436,14 @@ int execute_command_with_pty(char **target_argv, int target_argc, TerminalSize t
     }
     if (openpty(&master_err, &slave_err, NULL, NULL, &ws) == -1) {
         log_error("openpty stderr: %s\n", strerror(errno));
+        goto execution_cleanup;
+    }
+
+    // Draining a master to EOF means reading past the point where a blocking
+    // read would stall waiting for the next write.
+    if (fcntl(master_out, F_SETFL, O_NONBLOCK) == -1 ||
+        fcntl(master_err, F_SETFL, O_NONBLOCK) == -1) {
+        log_error("fcntl O_NONBLOCK: %s\n", strerror(errno));
         goto execution_cleanup;
     }
 
@@ -453,59 +493,46 @@ int execute_command_with_pty(char **target_argv, int target_argc, TerminalSize t
     close(slave_out); slave_out = -1;
     close(slave_err); slave_err = -1;
 
-    struct pollfd fds[2];
+    // Where each master's output goes, indexed in step with fds below.
+    static const struct {
+        int out_fd;
+        const char *name;
+    } streams[] = {
+        { STDOUT_FILENO, "stdout" },
+        { STDERR_FILENO, "stderr" },
+    };
+    enum { NSTREAMS = sizeof(streams) / sizeof(streams[0]) };
+
+    struct pollfd fds[NSTREAMS];
     fds[0].fd = master_out;
     fds[0].events = POLLIN;
     fds[1].fd = master_err;
     fds[1].events = POLLIN;
 
-    unsigned char buf[4096];
-    int open_streams = 2;
+    int open_streams = NSTREAMS;
 
     while (open_streams > 0) {
-        if (poll(fds, 2, -1) < 0) {
+        if (poll(fds, NSTREAMS, -1) < 0) {
             if (errno == EINTR) continue;
+            log_error("poll: %s\n", strerror(errno));
             break;
         }
 
-        // PTY Stdout -> Real Stdout
-        if (fds[0].fd != -1 && (fds[0].revents & POLLIN)) {
-            ssize_t n = read(master_out, buf, sizeof(buf));
-            if (n > 0) {
-                if (write_all(STDOUT_FILENO, buf, (size_t)n) == -1) {
-                    log_error("write stdout: %s\n", strerror(errno));
-                    break;
-                }
-            } else {
-                fds[0].fd = -1;
+        for (int i = 0; i < NSTREAMS; i++) {
+            if (fds[i].fd == -1 || fds[i].revents == 0) continue;
+
+            int drained = drain_pty(fds[i].fd, streams[i].out_fd, streams[i].name);
+            if (drained == -1) goto forwarding_done;
+
+            // POLLERR alone would otherwise spin: nothing to read and no EOF.
+            if (drained == 1 || (fds[i].revents & POLLERR)) {
+                fds[i].fd = -1;
                 open_streams--;
             }
-        }
-
-        // PTY Stderr -> Real Stderr
-        if (fds[1].fd != -1 && (fds[1].revents & POLLIN)) {
-            ssize_t n = read(master_err, buf, sizeof(buf));
-            if (n > 0) {
-                if (write_all(STDERR_FILENO, buf, (size_t)n) == -1) {
-                    log_error("write stderr: %s\n", strerror(errno));
-                    break;
-                }
-            } else {
-                fds[1].fd = -1;
-                open_streams--;
-            }
-        }
-
-        if (fds[0].fd != -1 && (fds[0].revents & (POLLHUP | POLLERR))) {
-            fds[0].fd = -1;
-            open_streams--;
-        }
-        if (fds[1].fd != -1 && (fds[1].revents & (POLLHUP | POLLERR))) {
-            fds[1].fd = -1;
-            open_streams--;
         }
     }
 
+forwarding_done:
     waitpid(pid, &status, 0);
     if (WIFEXITED(status)) {
         ret = WEXITSTATUS(status);
@@ -519,7 +546,8 @@ execution_cleanup:
     (void)target_argc;
     return ret;
 }
-#endif
+
+#endif // #ifndef FUZZING
 
 /**
  * Parses the terminal window size netstring from the context (format: "cols,rows").
