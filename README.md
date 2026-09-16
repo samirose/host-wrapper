@@ -17,6 +17,7 @@ A lightweight command-execution gateway designed to bridge isolated development 
   - [Why C and POSIX?](#why-c-and-posix)
 - [Technical Architecture](#technical-architecture)
   - [Stream Multiplexing and Netstring Framing](#stream-multiplexing-and-netstring-framing)
+  - [Exit Status](#exit-status)
 - [POSIX and OS Compatibility](#posix-and-os-compatibility)
 - [Multi-Project Architecture](#multi-project-architecture)
 - [Security Design](#security-design)
@@ -120,6 +121,18 @@ For example, executing `/usr/bin/wc -l` translates to:
 Because the wrapper parses `stdin` byte-by-byte up to the exact end of the header, the invoked target process natively inherits the remaining raw bytes on the standard input file descriptor.
 
 To guarantee terminal compliance and color support, approved host processes are spawned inside Dual PTY streams (separating stdout and stderr), mimicking native host execution.
+
+### Exit Status
+`host-proxy` exits with the target's status. Codes from 125 up follow the shell convention and report a command that did not run to completion:
+
+| Code    | Meaning                                                            |
+|---------|--------------------------------------------------------------------|
+| 0–124   | Exit status of the target                                          |
+| 125     | host-proxy or host-wrapper failed, e.g. a malformed request        |
+| 126     | Command denied by the allowlist                                    |
+| 127     | Command allowlisted but could not be executed                      |
+| 128+*n* | Target killed by signal *n*                                        |
+| 255     | `ssh` failed to connect; also what a target exiting 255 reports    |
 
 ---
 
