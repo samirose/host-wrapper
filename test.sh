@@ -251,17 +251,8 @@ while [ "$i" -lt 1000 ]; do
     i=$((i + 1))
 done
 
-# Run the proxy. It should fail with exit code 1 (from the ssh script), not 141 (SIGPIPE).
-OUT=$($LOCAL_HOST_PROXY "$LS_BIN" $ARGS 2>&1 </dev/null)
-EXIT_CODE=$?
-
-if [ $EXIT_CODE -ne 141 ] && [ $EXIT_CODE -ne 0 ]; then
-    report "SIGPIPE resilience" yes
-else
-    report "SIGPIPE resilience" no "  Expected proxy to handle SIGPIPE and return normal error code (not 141 or 0)
-  Actual Exit Code: $EXIT_CODE
-  Actual Output: $OUT"
-fi
+# The proxy reports the undelivered request as its own failure, not SIGPIPE's 141.
+run_test_exit "SIGPIPE resilience" 125 "" "" "$LOCAL_HOST_PROXY" "$LS_BIN" $ARGS
 
 # Scenario 11: Invalid argc (0 or negative)
 run_test_exit "Invalid argc (0)" 125 "Error: Invalid target argc (0)" "5:80,24,1:0," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
@@ -427,5 +418,17 @@ run_test_exit "Signal exits 128+n" 143 "" "" "$LOCAL_HOST_PROXY" "$SH_BIN" -c 'k
 
 # Scenario 25: Unreadable allowlist
 run_test_exit "Missing allowlist exits 125" 125 "fopen allowlist:" "" "$LOCAL_HOST_WRAPPER" ./no-such-allowlist
+
+# Scenario 26: host-proxy's own failures
+run_test_exit "Proxy usage error exits 125" 125 "Usage:" "" "$LOCAL_HOST_PROXY"
+run_test_exit "Unrunnable connector exits 125" 125 "execvp failed" "" \
+    env HOST_PROXY_SSH_SCRIPT=./no-such-connector "$LOCAL_HOST_PROXY" "$UNAME_BIN"
+
+# Scenario 27: Connector killed by a signal
+cat <<EOF > "host-proxy-ssh.sh"
+#!/bin/sh
+kill -TERM \$\$
+EOF
+run_test_exit "Killed connector exits 128+n" 143 "" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
 
 test_summary

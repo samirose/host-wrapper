@@ -32,6 +32,9 @@
 #include <libgen.h>
 #include <sys/ioctl.h>
 
+// 0-124 belong to the target; see host-wrapper.c.
+#define EXIT_PROXY_ERROR 125
+
 /**
  * Robustly writes all data to a file descriptor, handling partial writes
  * and EINTR. Returns 0 on success, -1 on error.
@@ -73,7 +76,7 @@ void execute_ssh_child(int pipe_read_fd, const char *proxy_dir) {
     // Redirect stdin from the pipe
     if (dup2(pipe_read_fd, 0) == -1) {
         perror("dup2");
-        exit(1);
+        exit(EXIT_PROXY_ERROR);
     }
     close(pipe_read_fd);
 
@@ -96,7 +99,7 @@ void execute_ssh_child(int pipe_read_fd, const char *proxy_dir) {
 
     execvp(script_argv[0], script_argv);
     fprintf(stderr, "execvp failed for %s: %s\n", script_path, strerror(errno));
-    exit(1);
+    exit(EXIT_PROXY_ERROR);
 }
 
 /**
@@ -147,7 +150,7 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
         // Pipe is likely broken already
         close(pipe_write_fd);
         waitpid(child_pid, NULL, 0);
-        return 1;
+        return EXIT_PROXY_ERROR;
     }
 
     // 1. Write target argc (argc-1 because argv[0] is host-proxy)
@@ -158,7 +161,7 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
         // Pipe is likely broken already
         close(pipe_write_fd);
         waitpid(child_pid, NULL, 0);
-        return 1;
+        return EXIT_PROXY_ERROR;
     }
 
     // 2. Write target argv
@@ -166,7 +169,7 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
         if (write_netstring(pipe_write_fd, argv[i], strlen(argv[i])) == -1) {
             close(pipe_write_fd);
             waitpid(child_pid, NULL, 0);
-            return 1;
+            return EXIT_PROXY_ERROR;
         }
     }
 
@@ -174,7 +177,7 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
     pid_t pump_pid = fork();
     if (pump_pid == -1) {
         perror("fork pump");
-        return 1;
+        return EXIT_PROXY_ERROR;
     }
 
     if (pump_pid == 0) {
@@ -189,27 +192,33 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
 
     // 4. Wait for SSH to finish
     int status;
-    waitpid(child_pid, &status, 0);
+    pid_t waited;
+    while ((waited = waitpid(child_pid, &status, 0)) == -1 && errno == EINTR) {}
+    if (waited == -1) perror("waitpid");
 
     // 5. SSH is done. The host command has finished.
     // Clean up the pump if it is still waiting for input (e.g., from an open terminal).
     kill(pump_pid, SIGTERM);
     waitpid(pump_pid, NULL, 0);
 
+    if (waited == -1) return EXIT_PROXY_ERROR;
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);
     }
-    return 1;
+    if (WIFSIGNALED(status)) {
+        return 128 + WTERMSIG(status);
+    }
+    return EXIT_PROXY_ERROR;
 }
 
 int main(int argc, char *argv[]) {
     char *proxy_dir = NULL;
     char *argv0_copy = NULL;
-    int result = 1;
+    int result = EXIT_PROXY_ERROR;
 
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <command> [args...]\n", argv[0]);
-        return 1;
+        return EXIT_PROXY_ERROR;
     }
 
     // Determine the directory of the host-proxy binary
