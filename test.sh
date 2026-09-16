@@ -205,13 +205,13 @@ echo "$FALSE_BIN" >> "$ALLOWLIST"
 run_test_exit "Exit code propagation" 1 "" "" "$LOCAL_HOST_PROXY" "$FALSE_BIN"
 
 # Scenario 6: Malformed header
-run_test_pipe "Malformed header" "Error: Malformed netstring" "malformed" "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Malformed header" 125 "Error: Malformed netstring" "malformed" "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 7: Header length too long (exceeds MAX_ARG_LEN of 65536)
-run_test_pipe "Header too long limit" "Error: Argument too long (999999 bytes)" "999999:toobig," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Header too long limit" 125 "Error: Argument too long (999999 bytes)" "999999:toobig," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 8: Header digits exceed buffer (more than 15 digits)
-run_test_pipe "Header digits overflow" "Error: Netstring length too long" "12345678901234567890:toobig," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Header digits overflow" 125 "Error: Netstring length too long" "12345678901234567890:toobig," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 9: Verify no-hang when host command finishes but stdin is still open
 FIFO="./test_fifo"
@@ -276,10 +276,10 @@ else
 fi
 
 # Scenario 11: Invalid argc (0 or negative)
-run_test_pipe "Invalid argc (0)" "Error: Invalid target argc (0)" "5:80,24,1:0," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Invalid argc (0)" 125 "Error: Invalid target argc (0)" "5:80,24,1:0," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 12: argc too large
-run_test_pipe "Argc too large" "Error: Invalid target argc (1025)" "5:80,24,4:1025," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Argc too large" 125 "Error: Invalid target argc (1025)" "5:80,24,4:1025," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 13: Partial match in allowlist (prefix/suffix)
 # A prefix of an allowlisted path must not match it.
@@ -288,7 +288,7 @@ run_test_exit "Allowlist prefix match" 126 "Error: Command '$UNAME_PREFIX' not i
 
 # Scenario 14: Premature EOF in netstring data
 # Header says 1 byte, but we send '1' and then close without the comma.
-run_test_pipe "Premature EOF" "Error: Malformed netstring (expected ',')" "2:1,1:1" "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Premature EOF" 125 "Error: Malformed netstring (expected ',')" "2:1,1:1" "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 15: Extremely long allowlist line (testing getline)
 # Use OS max path limit divided into valid NAME_MAX chunks, plus a long comment
@@ -436,5 +436,8 @@ assert_equals "Exec failure reported once" "$(grep -c 'execvp:' "$CAPTURE_ERR")"
 
 # Scenario 24: Target killed by a signal
 run_test_exit "Signal exits 128+n" 143 "" "" "$LOCAL_HOST_PROXY" "$SH_BIN" -c 'kill -TERM $$'
+
+# Scenario 25: Unreadable allowlist
+run_test_exit "Missing allowlist exits 125" 125 "fopen allowlist:" "" "$LOCAL_HOST_WRAPPER" ./no-such-allowlist
 
 test_summary

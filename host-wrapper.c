@@ -50,8 +50,9 @@
 #define MAX_ARG_LEN 65536
 
 // Shell convention: 0-124 belong to the target.
-#define EXIT_DENIED      126
-#define EXIT_EXEC_FAILED 127
+#define EXIT_WRAPPER_ERROR 125
+#define EXIT_DENIED        126
+#define EXIT_EXEC_FAILED   127
 
 /**
  * Logs an error to stderr. If FUZZING is defined, this is a no-op 
@@ -422,7 +423,7 @@ static int drain_pty(int master_fd, int out_fd, const char *name) {
  * and enters a poll loop to forward output. Returns the target command's exit code.
  */
 int execute_command_with_pty(char **target_argv, int target_argc, TerminalSize termsize, int has_stdin) {
-    int ret = 1;
+    int ret = EXIT_WRAPPER_ERROR;
     int master_out = -1, slave_out = -1;
     int master_err = -1, slave_err = -1;
     int status;
@@ -538,7 +539,12 @@ int execute_command_with_pty(char **target_argv, int target_argc, TerminalSize t
     }
 
 forwarding_done:
-    waitpid(pid, &status, 0);
+    while (waitpid(pid, &status, 0) == -1) {
+        if (errno != EINTR) {
+            log_error("waitpid: %s\n", strerror(errno));
+            goto execution_cleanup;
+        }
+    }
     if (WIFEXITED(status)) {
         ret = WEXITSTATUS(status);
     } else if (WIFSIGNALED(status)) {
@@ -584,13 +590,13 @@ TerminalSize parse_terminal_size(ParserContext *ctx) {
 }
 
 int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path) {
-    int ret = 1;
+    int ret = EXIT_WRAPPER_ERROR;
     char **target_argv = NULL;
     int target_argc = 0;
 
     TerminalSize termsize = parse_terminal_size(ctx);
     target_argv = parse_target_args(ctx, &target_argc);
-    if (!target_argv) return 1;
+    if (!target_argv) return EXIT_WRAPPER_ERROR;
 
     AllowlistResult allow_res = check_allowed(target_argv[0], allowlist_fp);
     if (!allow_res.allowed) {
@@ -625,14 +631,14 @@ cleanup:
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <allowlist_path>\n", argv[0]);
-        return 1;
+        return EXIT_WRAPPER_ERROR;
     }
     const char *allowlist_path = argv[1];
 
     FILE *fp = fopen(allowlist_path, "r");
     if (!fp) {
         log_error("fopen allowlist: %s\n", strerror(errno));
-        return 1;
+        return EXIT_WRAPPER_ERROR;
     }
 
     ParserContext ctx = { .fd = STDIN_FILENO, .buf = NULL, .size = 0, .pos = 0 };
