@@ -49,6 +49,9 @@
 #define MAX_ARGS 1024
 #define MAX_ARG_LEN 65536
 
+// Shell convention: 0-124 belong to the target.
+#define EXIT_EXEC_FAILED 127
+
 /**
  * Logs an error to stderr. If FUZZING is defined, this is a no-op 
  * to ensure the fuzzer runs at maximum speed without I/O blocking.
@@ -485,8 +488,9 @@ int execute_command_with_pty(char **target_argv, int target_argc, TerminalSize t
 
         execvp(target_argv[0], target_argv);
 
+        // _exit: returning would unwind the parent's frames in the child.
         log_error("execvp: %s\n", strerror(errno));
-        return 1;
+        _exit(EXIT_EXEC_FAILED);
     }
 
     // Parent:

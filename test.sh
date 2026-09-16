@@ -305,7 +305,7 @@ LONG_PATH=$(printf '%s' "$LONG_PATH" | cut -c "1-$TARGET_LEN")
 
 LONG_COMMENT=$(printf '%2000s' '' | tr ' ' 'C')
 echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
-run_test_pipe "Long allowlist line match" "execvp: No such file or directory" "5:80,24,1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Long allowlist line match" 127 "execvp: No such file or directory" "5:80,24,1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 17: Context-aware Working Directory (chdir)
 # Create a subdirectory, move allowlist there, and verify 'pwd' starts in that directory
@@ -425,5 +425,13 @@ assert_equals "Window size survives a redirected stdin" "$WINSIZE_OUT" "120,40"
 "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe" \
     < /dev/null > "$CAPTURE_OUT" 2> "$CAPTURE_ERR"
 assert_equals "Window size defaults without a terminal" "$(cat "$CAPTURE_OUT")" "80,24"
+
+# Scenario 23: Allowlisted but missing
+# Exactly one diagnostic: a child that unwound through main would repeat
+# whatever was buffered at the fork.
+MISSING_BIN="$TEST_DIR/no-such-tool"
+echo "$MISSING_BIN" >> "$ALLOWLIST"
+run_test_exit "Exec failure exits 127" 127 "execvp: No such file or directory" "" "$LOCAL_HOST_PROXY" "$MISSING_BIN"
+assert_equals "Exec failure reported once" "$(grep -c 'execvp:' "$CAPTURE_ERR")" "1"
 
 test_summary
