@@ -96,7 +96,7 @@ CAPTURE_ERR="./capture-stderr"
 # Internal base function for all tests
 # Usage: _run_test_base <name> <expected_exit> <stream> <expected_out> <stdin_data> <cmd...>
 #
-# expected_exit: "zero", "nonzero", or an exact status such as 126.
+# expected_exit: "zero" or an exact status such as 126.
 # stream:        "out", "err" or "both" -- which capture expected_out has to
 #                appear in. An empty expected_out matches anything.
 _run_test_base() {
@@ -126,7 +126,6 @@ $actual_err" ;;
     exit_pass=false
     case "$expected_exit" in
         zero)    [ "$exit_code" -eq 0 ] && exit_pass=true ;;
-        nonzero) [ "$exit_code" -ne 0 ] && exit_pass=true ;;
         *)       [ "$exit_code" -eq "$expected_exit" ] && exit_pass=true ;;
     esac
 
@@ -164,17 +163,6 @@ run_test() {
     _name="$1"
     shift
     _run_test_base "$_name" zero out "$@"
-}
-run_test_fail() {
-    _name="$1"
-    shift
-    _run_test_base "$_name" nonzero err "$@"
-}
-# Used for piping raw protocol data into wrapper
-run_test_pipe() {
-    _name="$1"
-    shift
-    _run_test_base "$_name" nonzero err "$@"
 }
 # run_test_exit <name> <expected_code> <expected_err> <stdin_data> <cmd...>
 run_test_exit() {
