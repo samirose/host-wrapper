@@ -434,4 +434,7 @@ echo "$MISSING_BIN" >> "$ALLOWLIST"
 run_test_exit "Exec failure exits 127" 127 "execvp: No such file or directory" "" "$LOCAL_HOST_PROXY" "$MISSING_BIN"
 assert_equals "Exec failure reported once" "$(grep -c 'execvp:' "$CAPTURE_ERR")" "1"
 
+# Scenario 24: Target killed by a signal
+run_test_exit "Signal exits 128+n" 143 "" "" "$LOCAL_HOST_PROXY" "$SH_BIN" -c 'kill -TERM $$'
+
 test_summary

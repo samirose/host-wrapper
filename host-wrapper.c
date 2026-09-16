@@ -541,6 +541,8 @@ forwarding_done:
     waitpid(pid, &status, 0);
     if (WIFEXITED(status)) {
         ret = WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        ret = 128 + WTERMSIG(status);
     }
 
 execution_cleanup:
