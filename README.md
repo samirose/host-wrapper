@@ -294,8 +294,6 @@ test-linux` covers the second from a Mac: Apple's `container` for the Linux
 kernel, the flake's devShell for the toolchain, so the versions come from
 `flake.lock` rather than from whatever the image ships.
 
-- `Large output integrity` fails under `make test-linux` today: the PTY poll
-  loop can discard a buffered tail when the target exits.
 - On glibc older than 2.34, `openpty` lives in libutil:
   `make test LDLIBS=-lutil`.
 - `examples/test-container-machine.sh` needs a provisioned Container Machine and
