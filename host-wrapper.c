@@ -50,6 +50,7 @@
 #define MAX_ARG_LEN 65536
 
 // Shell convention: 0-124 belong to the target.
+#define EXIT_DENIED      126
 #define EXIT_EXEC_FAILED 127
 
 /**
@@ -593,6 +594,7 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     if (!allow_res.allowed) {
         log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
         audit_log("DENIED ", target_argc, target_argv, allowlist_path);
+        ret = EXIT_DENIED;
         goto cleanup;
     }
 

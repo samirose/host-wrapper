@@ -194,7 +194,7 @@ run_test "Spaces in args" "[hello space]" "" "$LOCAL_HOST_PROXY" "$PRINTF_BIN" "
 run_test "Stdin piping (wc)" "12" "hello stream" "$LOCAL_HOST_PROXY" "$WC_BIN" -c
 
 # Scenario 4: Command NOT in allowlist
-run_test_fail "Blocked command" "Error: Command '$ID_BIN' not in allowlist" "" "$LOCAL_HOST_PROXY" "$ID_BIN"
+run_test_exit "Blocked command" 126 "Error: Command '$ID_BIN' not in allowlist" "" "$LOCAL_HOST_PROXY" "$ID_BIN"
 
 # Scenario 5: Multiple arguments
 run_test "Multi-args" "arg1-arg2" "" "$LOCAL_HOST_PROXY" "$PRINTF_BIN" "%s-%s\n" arg1 arg2
@@ -284,7 +284,7 @@ run_test_pipe "Argc too large" "Error: Invalid target argc (1025)" "5:80,24,4:10
 # Scenario 13: Partial match in allowlist (prefix/suffix)
 # A prefix of an allowlisted path must not match it.
 UNAME_PREFIX=${UNAME_BIN%??}
-run_test_pipe "Allowlist prefix match" "Error: Command '$UNAME_PREFIX' not in allowlist" "5:80,24,1:1,${#UNAME_PREFIX}:$UNAME_PREFIX," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Allowlist prefix match" 126 "Error: Command '$UNAME_PREFIX' not in allowlist" "5:80,24,1:1,${#UNAME_PREFIX}:$UNAME_PREFIX," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 14: Premature EOF in netstring data
 # Header says 1 byte, but we send '1' and then close without the comma.
