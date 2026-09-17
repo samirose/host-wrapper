@@ -284,7 +284,7 @@ LONG_PATH=$(printf '%s' "$LONG_PATH" | cut -c "1-$TARGET_LEN")
 
 LONG_COMMENT=$(printf '%2000s' '' | tr ' ' 'C')
 echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
-run_test_exit "Long allowlist line match" 127 "execvp: No such file or directory" "5:80,24,1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Long allowlist line match" 127 "execv: No such file or directory" "5:80,24,1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
 
 # Scenario 17: Context-aware Working Directory (chdir)
 # Create a subdirectory, move allowlist there, and verify 'pwd' starts in that directory
@@ -410,8 +410,8 @@ assert_equals "Window size defaults without a terminal" "$(cat "$CAPTURE_OUT")" 
 # whatever was buffered at the fork.
 MISSING_BIN="$TEST_DIR/no-such-tool"
 echo "$MISSING_BIN" >> "$ALLOWLIST"
-run_test_exit "Exec failure exits 127" 127 "execvp: No such file or directory" "" "$LOCAL_HOST_PROXY" "$MISSING_BIN"
-assert_equals "Exec failure reported once" "$(grep -c 'execvp:' "$CAPTURE_ERR")" "1"
+run_test_exit "Exec failure exits 127" 127 "execv: No such file or directory" "" "$LOCAL_HOST_PROXY" "$MISSING_BIN"
+assert_equals "Exec failure reported once" "$(grep -c 'execv:' "$CAPTURE_ERR")" "1"
 
 # Scenario 24: Target killed by a signal
 run_test_exit "Signal exits 128+n" 143 "" "" "$LOCAL_HOST_PROXY" "$SH_BIN" -c 'kill -TERM $$'

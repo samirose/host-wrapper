@@ -606,10 +606,10 @@ int execute_command_with_pty(const char *exec_path, char **target_argv, int targ
         close(master_err); close(slave_err);
 
         // The file is the resolved path; argv[0] stays as the request wrote it.
-        execvp(exec_path, target_argv);
+        execv(exec_path, target_argv);
 
         // _exit: returning would unwind the parent's frames in the child.
-        log_error("execvp: %s\n", strerror(errno));
+        log_error("execv: %s\n", strerror(errno));
         _exit(EXIT_EXEC_FAILED);
     }
 

@@ -94,7 +94,7 @@ sequenceDiagram
     end
     Proxy->>Pump: fork() stdin-pump subprocess
     Pump->>Wrapper: Pipe raw stdin stream bytes
-    Wrapper->>HostCmd: fork() & execvp() inside Dual PTYs
+    Wrapper->>HostCmd: fork() & execv() inside Dual PTYs
     Wrapper->>HostCmd: Stream stdin
     HostCmd-->>Wrapper: Stream stdout/stderr
     Wrapper-->>Proxy: Framed stdout/stderr streams
@@ -146,7 +146,7 @@ There is a test script that test behaviour and key security features. The host-s
 3. **Strict Command Validation**:
    - Commands are validated strictly by their base path.
    - Standard input redirection from proxy to host is blocked by default for all allowed commands unless explicitly overridden in the allowlist using the `+stdin` option.
-4. **Resilient Shell/Injection Prevention**: The wrapper bypasses the shell completely by invoking processes directly using `execvp()`. There is no shell evaluation of arguments, preventing command-injection attacks.
+4. **Resilient Shell/Injection Prevention**: The wrapper bypasses the shell completely by invoking processes directly using `execv()`. There is no shell evaluation of arguments, preventing command-injection attacks.
 5. **Audit Logging**: Every execution attempt (both `ALLOWED` and `DENIED` actions) is logged to a host-side file with timestamps, target arguments, and client keys, allowing auditing of wrapper actions.
 6. **Pinned Host Identity**: The guest verifies the host's SSH host key against a `known_hosts` file written at provisioning time, filed under the fixed alias `host-wrapper` rather than under an address. Because verification does not depend on the address, the connection runs with `StrictHostKeyChecking=yes` even though the container gateway address varies between systems. Without the alias, an address that moves would either fail verification or force host key checking to be turned off, leaving the guest willing to hand its key to whatever answers at the old address.
 
