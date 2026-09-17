@@ -355,6 +355,8 @@ AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) 
         char *cmd_token = allowlist_entry(line, &line_has_stdin);
         if (!cmd_token) continue;
 
+        // Resolved here rather than taken on trust from the startup pass: an
+        // entry that does not resolve cannot match, whatever that pass saw.
         const char *why;
         char *resolved = resolve_command(cmd_token, workspace, &why);
         if (!resolved) continue;
@@ -371,6 +373,46 @@ AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) 
 
     free(line);
     return res;
+}
+
+/**
+ * Reports every allowlist entry that names no single file, so the wrapper can
+ * refuse to serve a request against a list it cannot enforce. Leaves the
+ * stream rewound for the lookup. Returns 0 when every entry is usable.
+ *
+ * Reading the list twice is not a check-then-use window. The lookup reads the
+ * same open stream, so the file cannot be swapped underneath it, and it
+ * resolves every entry itself rather than trusting what this pass saw. That
+ * makes this a startup diagnostic: it fails the whole list loudly, where the
+ * lookup would only ever skip the offending line.
+ */
+int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
+    char *line = NULL;
+    size_t linecap = 0;
+    ssize_t linelen;
+    int lineno = 0;
+    int bad = 0;
+
+    while ((linelen = getline(&line, &linecap, fp)) > 0) {
+        int line_has_stdin;
+        lineno++;
+        char *cmd_token = allowlist_entry(line, &line_has_stdin);
+        if (!cmd_token) continue;
+
+        const char *why;
+        char *resolved = resolve_command(cmd_token, workspace, &why);
+        if (resolved) {
+            free(resolved);
+            continue;
+        }
+        log_error("Error: %s:%d: '%s' %s\n", path, lineno, cmd_token,
+                  why ? why : "cannot be resolved");
+        bad = 1;
+    }
+
+    free(line);
+    rewind(fp);
+    return bad ? -1 : 0;
 }
 
 /**
@@ -734,6 +776,12 @@ int main(int argc, char *argv[]) {
 
     char *workspace = workspace_dir(allowlist_path);
     if (!workspace) {
+        fclose(fp);
+        return EXIT_WRAPPER_ERROR;
+    }
+
+    if (validate_allowlist(fp, allowlist_path, workspace) != 0) {
+        free(workspace);
         fclose(fp);
         return EXIT_WRAPPER_ERROR;
     }

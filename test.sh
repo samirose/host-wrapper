@@ -452,6 +452,18 @@ run_test_exit "Escaping relative path denied" 126 \
     "Error: Command './../tool.sh' contains a '..' component" "" \
     "$LOCAL_HOST_PROXY" ./../tool.sh
 
+# An entry the wrapper cannot enforce is a configuration error, so it is caught
+# when the list is read rather than when a request happens to name it.
+UNRESOLVABLE_ALLOWLIST="./unresolvable_allowlist"
+cat <<EOF > "$UNRESOLVABLE_ALLOWLIST"
+$UNAME_BIN
+wc +stdin
+EOF
+run_test_exit "Unresolvable allowlist entry refused" 125 \
+    "Error: $UNRESOLVABLE_ALLOWLIST:2: 'wc' has no directory" \
+    "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
+    "$LOCAL_HOST_WRAPPER" "$UNRESOLVABLE_ALLOWLIST"
+
 # Scenario 28: host-proxy's own failures
 run_test_exit "Proxy usage error exits 125" 125 "Usage:" "" "$LOCAL_HOST_PROXY"
 run_test_exit "Unrunnable connector exits 125" 125 "execvp failed" "" \
