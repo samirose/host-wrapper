@@ -26,6 +26,9 @@ if [ ! -f "$ALLOWLIST_FILE" ]; then
 # Allowed commands for host-proxy
 #
 # - Edit to include commands relevant to your use case, one per line.
+# - Name a command absolutely, or relative to this file's directory, which is
+#   where commands run: /usr/bin/uname or ./build.sh. A bare name is refused,
+#   because nothing is looked up on PATH.
 # - Use +stdin option to allow the command to receive standard input from the proxy.
 /usr/bin/uname
 /usr/bin/printf

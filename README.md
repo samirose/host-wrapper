@@ -144,7 +144,8 @@ There is a test script that test behaviour and key security features. The host-s
 1. **Enforced SSH Command Context**: The client's public key in the host's `~/.ssh/authorized_keys` file is restricted using `command="/path/to/host-wrapper /path/to/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding`. This guarantees that even if a guest container is compromised, it can only invoke the host-wrapper via SSH.
 2. **Working Directory Mapping**: Before executing an approved host command, host-wrapper changes its working directory (`chdir`) to the directory containing the allowlist file. This serves as a convenience, allowing host commands to resolve file paths relative to workspace directory.
 3. **Strict Command Validation**:
-   - Commands are validated strictly by their base path.
+   - A command is named either absolutely, or relative to the allowlist directory, which is where it runs: `/usr/bin/uname` or `./build.sh`. A name that is neither — a bare `uname`, or anything with a `..` component — is refused when the allowlist is read, before any request is served.
+   - Entry and request are both resolved against that directory and then compared, so the string compared is the file executed. Nothing is looked up on `PATH`: an allowlist naming `/usr/bin/uname` permits `/usr/bin/uname`, and not `uname`.
    - Standard input redirection from proxy to host is blocked by default for all allowed commands unless explicitly overridden in the allowlist using the `+stdin` option.
 4. **Resilient Shell/Injection Prevention**: The wrapper bypasses the shell completely by invoking processes directly using `execv()`. There is no shell evaluation of arguments, preventing command-injection attacks.
 5. **Audit Logging**: Every execution attempt (both `ALLOWED` and `DENIED` actions) is logged to a host-side file with timestamps, target arguments, and client keys, allowing auditing of wrapper actions.
