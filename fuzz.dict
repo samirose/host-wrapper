@@ -82,6 +82,11 @@
 "#"
 "allowlist"
 
+# Path rule tokens: a command is compared and executed as an absolute path
+"/../"
+".."
+"wc"
+
 # Allowlist syntax tokens
 "\x0a"
 "\x0d"

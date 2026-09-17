@@ -419,12 +419,45 @@ run_test_exit "Signal exits 128+n" 143 "" "" "$LOCAL_HOST_PROXY" "$SH_BIN" -c 'k
 # Scenario 25: Unreadable allowlist
 run_test_exit "Missing allowlist exits 125" 125 "fopen allowlist:" "" "$LOCAL_HOST_WRAPPER" ./no-such-allowlist
 
-# Scenario 26: host-proxy's own failures
+# Scenario 26: Commands named relative to the allowlist directory
+# The entry and the request resolve against the same directory, so a project
+# can keep its tools beside its allowlist and name neither absolutely.
+cat <<'EOF' > "./tool.sh"
+#!/bin/sh
+printf 'tool ran in %s\n' "$(pwd)"
+EOF
+chmod +x "./tool.sh"
+echo "./tool.sh" >> "$ALLOWLIST"
+run_test "Workspace-relative command" "tool ran in" "" "$LOCAL_HOST_PROXY" ./tool.sh
+
+# Resolution is what is compared, so the two ways of naming that file meet.
+# pwd -P, because the wrapper resolves against the directory getcwd reports.
+WORKSPACE=$(pwd -P)
+run_test "Absolute request meets a relative entry" "tool ran in" "" \
+    "$LOCAL_HOST_PROXY" "$WORKSPACE/tool.sh"
+
+# Scenario 27: Names that resolve to no single file
+# Both are denied by the resolution rule rather than by the lookup, which is
+# what the diagnostic distinguishes: the unwound form names an allowlisted
+# file, and a bare name is one PATH lookup away from one.
+UNAME_DIR=${UNAME_BIN%/*}
+UNWOUND_UNAME="$UNAME_DIR/../${UNAME_DIR##*/}/${UNAME_BIN##*/}"
+run_test_exit "Bare command name denied" 126 \
+    "Error: Command 'uname' has no directory; write it absolutely" \
+    "" "$LOCAL_HOST_PROXY" uname
+run_test_exit "Unwound path denied" 126 \
+    "Error: Command '$UNWOUND_UNAME' contains a '..' component" "" \
+    "$LOCAL_HOST_PROXY" "$UNWOUND_UNAME"
+run_test_exit "Escaping relative path denied" 126 \
+    "Error: Command './../tool.sh' contains a '..' component" "" \
+    "$LOCAL_HOST_PROXY" ./../tool.sh
+
+# Scenario 28: host-proxy's own failures
 run_test_exit "Proxy usage error exits 125" 125 "Usage:" "" "$LOCAL_HOST_PROXY"
 run_test_exit "Unrunnable connector exits 125" 125 "execvp failed" "" \
     env HOST_PROXY_SSH_SCRIPT=./no-such-connector "$LOCAL_HOST_PROXY" "$UNAME_BIN"
 
-# Scenario 27: Connector killed by a signal
+# Scenario 29: Connector killed by a signal
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
 kill -TERM \$\$

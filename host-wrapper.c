@@ -43,6 +43,7 @@
 #endif
 #include <poll.h>
 #include <fcntl.h>
+#include <limits.h>
 
 #include <stdarg.h>
 
@@ -231,6 +232,57 @@ char* parse_netstring(ParserContext *ctx, size_t *out_len) {
 }
 
 /**
+ * Resolves a command to the absolute path of the file to run: either named
+ * absolutely, or relative to the allowlist directory, which is where the
+ * target runs. Allowlist entries and requests go through this, so the string
+ * compared is the file executed, and nothing is searched for on PATH.
+ *
+ * Returns a malloc'd path, or NULL with *why set to the reason it names no
+ * single file.
+ */
+char* resolve_command(const char *path, const char *workspace, const char **why) {
+    *why = NULL;
+    if (!path || !*path) {
+        *why = "is empty";
+        return NULL;
+    }
+
+    // A ".." component makes the text and the file two different things again,
+    // whichever side of the comparison it appears on.
+    //
+    // The conjunct order is important: each index is reached only once the
+    // byte before it has tested non-NUL, so the furthest read is the
+    // terminator. Reordering these tests would read past the string.
+    for (const char *p = path; *p; p++) {
+        if ((p == path || p[-1] == '/') && p[0] == '.' && p[1] == '.' &&
+            (p[2] == '/' || p[2] == '\0')) {
+            *why = "contains a '..' component";
+            return NULL;
+        }
+    }
+
+    if (path[0] == '/') return strdup(path);
+
+    if (!strchr(path, '/')) {
+        *why = "has no directory; write it absolutely,"
+               " or prefix ./ for the allowlist directory";
+        return NULL;
+    }
+
+    while (path[0] == '.' && path[1] == '/') path += 2;
+    if (!*path) {
+        *why = "names a directory, not a command";
+        return NULL;
+    }
+
+    size_t len = strlen(workspace) + 1 + strlen(path) + 1;
+    char *resolved = malloc(len);
+    if (!resolved) return NULL;
+    snprintf(resolved, len, "%s/%s", workspace, path);
+    return resolved;
+}
+
+/**
  * Checks if the given command is present and enabled in the allowlist file.
  * The allowlist supports comments (#) and empty lines.
  */
@@ -243,7 +295,54 @@ typedef struct {
  * Checks if the given command is present and enabled in the allowlist file.
  * The allowlist supports comments (#) and empty lines.
  */
-AllowlistResult check_allowed(const char *cmd, FILE *fp) {
+/**
+ * Reduces one allowlist line, in place, to the command it names, and reports
+ * the options set on it. Returns NULL for a blank or comment-only line.
+ */
+char* allowlist_entry(char *line, int *has_stdin) {
+    *has_stdin = 0;
+
+    // Strip newline
+    line[strcspn(line, "\r\n")] = 0;
+
+    char *p = line;
+    // Skip leading whitespace
+    while (isspace(*p)) p++;
+
+    // Handle inline comments: find the first '#' and truncate the string there
+    char *comment = strchr(p, '#');
+    if (comment) {
+        *comment = '\0';
+    }
+
+    // If the line is empty after stripping comments/whitespace, skip it
+    if (*p == '\0') return NULL;
+
+    // Strip trailing whitespace
+    char *end = p + strlen(p) - 1;
+    while (end > p && isspace(*end)) {
+        *end = '\0';
+        end--;
+    }
+
+    char *saveptr;
+    char *cmd_token = strtok_r(p, " \t\r\n", &saveptr);
+    if (!cmd_token) return NULL;
+
+    char *token;
+    while ((token = strtok_r(NULL, " \t\r\n", &saveptr)) != NULL) {
+        if (strcmp(token, "+stdin") == 0) {
+            *has_stdin = 1;
+        }
+    }
+    return cmd_token;
+}
+
+/**
+ * cmd is the request already resolved, so both sides of the comparison have
+ * been through resolve_command.
+ */
+AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) {
     AllowlistResult res = { .allowed = 0, .has_stdin = 0 };
     if (!fp) return res;
 
@@ -252,46 +351,18 @@ AllowlistResult check_allowed(const char *cmd, FILE *fp) {
     ssize_t linelen;
 
     while ((linelen = getline(&line, &linecap, fp)) > 0) {
-        // Strip newline
-        line[strcspn(line, "\r\n")] = 0;
+        int line_has_stdin;
+        char *cmd_token = allowlist_entry(line, &line_has_stdin);
+        if (!cmd_token) continue;
 
-        char *p = line;
-        // Skip leading whitespace
-        while (isspace(*p)) p++;
+        const char *why;
+        char *resolved = resolve_command(cmd_token, workspace, &why);
+        if (!resolved) continue;
 
-        // Handle inline comments: find the first '#' and truncate the string there
-        char *comment = strchr(p, '#');
-        if (comment) {
-            *comment = '\0';
-        }
+        int match = strcmp(cmd, resolved) == 0;
+        free(resolved);
 
-        // If the line is empty after stripping comments/whitespace, skip it
-        if (*p == '\0') continue;
-
-        // Strip trailing whitespace
-        char *end = p + strlen(p) - 1;
-        while (end > p && isspace(*end)) {
-            *end = '\0';
-            end--;
-        }
-
-        // Tokenize p to check command and options
-        char *cmd_token = NULL;
-        int line_has_stdin = 0;
-
-        char *saveptr;
-        char *token = strtok_r(p, " \t\r\n", &saveptr);
-        if (token) {
-            cmd_token = token;
-            // Now look for options
-            while ((token = strtok_r(NULL, " \t\r\n", &saveptr)) != NULL) {
-                if (strcmp(token, "+stdin") == 0) {
-                    line_has_stdin = 1;
-                }
-            }
-        }
-
-        if (cmd_token && strcmp(cmd, cmd_token) == 0) {
+        if (match) {
             res.allowed = 1;
             res.has_stdin = line_has_stdin;
             break;
@@ -367,23 +438,27 @@ cleanup:
 }
 
 /**
- * Changes the current working directory to the directory containing the allowlist file.
- * Returns 0 on success, -1 on error.
+ * The directory holding the allowlist: both where the target runs and what a
+ * relative command resolves against. Canonical, so that how the forced command
+ * happened to spell the allowlist path does not change which string a relative
+ * entry resolves to. Returns a malloc'd path, or NULL on error.
  */
-int change_to_allowlist_dir(const char *allowlist_path) {
+char* workspace_dir(const char *allowlist_path) {
     char *path_copy = strdup(allowlist_path);
     if (!path_copy) {
         log_error("strdup: %s\n", strerror(errno));
-        return -1;
+        return NULL;
     }
-    char *dir = dirname(path_copy);
-    if (chdir(dir) != 0) {
-        log_error("chdir to %s: %s\n", dir, strerror(errno));
-        free(path_copy);
-        return -1;
+
+    char resolved[PATH_MAX];
+    char *workspace = NULL;
+    if (realpath(dirname(path_copy), resolved)) {
+        workspace = strdup(resolved);
     }
+
     free(path_copy);
-    return 0;
+    if (!workspace) log_error("allowlist directory: %s\n", strerror(errno));
+    return workspace;
 }
 
 #ifndef FUZZING
@@ -422,7 +497,7 @@ static int drain_pty(int master_fd, int out_fd, const char *name) {
  * Spawns the target process inside dual PTY streams (stdout and stderr separated)
  * and enters a poll loop to forward output. Returns the target command's exit code.
  */
-int execute_command_with_pty(char **target_argv, int target_argc, TerminalSize termsize, int has_stdin) {
+int execute_command_with_pty(const char *exec_path, char **target_argv, int target_argc, TerminalSize termsize, int has_stdin) {
     int ret = EXIT_WRAPPER_ERROR;
     int master_out = -1, slave_out = -1;
     int master_err = -1, slave_err = -1;
@@ -488,7 +563,8 @@ int execute_command_with_pty(char **target_argv, int target_argc, TerminalSize t
         close(master_out); close(slave_out);
         close(master_err); close(slave_err);
 
-        execvp(target_argv[0], target_argv);
+        // The file is the resolved path; argv[0] stays as the request wrote it.
+        execvp(exec_path, target_argv);
 
         // _exit: returning would unwind the parent's frames in the child.
         log_error("execvp: %s\n", strerror(errno));
@@ -589,16 +665,28 @@ TerminalSize parse_terminal_size(ParserContext *ctx) {
     return size;
 }
 
-int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path) {
+int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path,
+                const char *workspace) {
     int ret = EXIT_WRAPPER_ERROR;
     char **target_argv = NULL;
+    char *exec_path = NULL;
     int target_argc = 0;
 
     TerminalSize termsize = parse_terminal_size(ctx);
     target_argv = parse_target_args(ctx, &target_argc);
     if (!target_argv) return EXIT_WRAPPER_ERROR;
 
-    AllowlistResult allow_res = check_allowed(target_argv[0], allowlist_fp);
+    const char *why;
+    exec_path = resolve_command(target_argv[0], workspace, &why);
+    if (!exec_path) {
+        log_error("Error: Command '%s' %s\n", target_argv[0],
+                  why ? why : "cannot be resolved");
+        audit_log("DENIED ", target_argc, target_argv, allowlist_path);
+        ret = EXIT_DENIED;
+        goto cleanup;
+    }
+
+    AllowlistResult allow_res = check_allowed(exec_path, allowlist_fp, workspace);
     if (!allow_res.allowed) {
         log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
         audit_log("DENIED ", target_argc, target_argv, allowlist_path);
@@ -609,13 +697,15 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     audit_log("ALLOWED", target_argc, target_argv, allowlist_path);
 
 #ifndef FUZZING
-    // Change working directory to the folder containing the allowlist
-    // before execution, so commands can use paths relative to it.
-    if (change_to_allowlist_dir(allowlist_path) != 0) {
+    // The target runs in the allowlist directory, so its arguments can name
+    // paths relative to it.
+    if (chdir(workspace) != 0) {
+        log_error("chdir to %s: %s\n", workspace, strerror(errno));
         goto cleanup;
     }
 
-    ret = execute_command_with_pty(target_argv, target_argc, termsize, allow_res.has_stdin);
+    ret = execute_command_with_pty(exec_path, target_argv, target_argc, termsize,
+                                   allow_res.has_stdin);
 #else
     (void)allowlist_path;
     (void)termsize;
@@ -623,6 +713,7 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
 #endif
 
 cleanup:
+    free(exec_path);
     free_target_args(target_argv, target_argc);
     return ret;
 }
@@ -641,8 +732,15 @@ int main(int argc, char *argv[]) {
         return EXIT_WRAPPER_ERROR;
     }
 
+    char *workspace = workspace_dir(allowlist_path);
+    if (!workspace) {
+        fclose(fp);
+        return EXIT_WRAPPER_ERROR;
+    }
+
     ParserContext ctx = { .fd = STDIN_FILENO, .buf = NULL, .size = 0, .pos = 0 };
-    int ret = run_wrapper(&ctx, fp, allowlist_path);
+    int ret = run_wrapper(&ctx, fp, allowlist_path, workspace);
+    free(workspace);
     fclose(fp);
     return ret;
 }
