@@ -90,38 +90,49 @@ void log_error(const char *format, ...) {
 }
 
 /**
- * Logs an execution event to host-wrapper.log in the allowlist directory.
+ * Opens the audit trail for appending. Held open for the run, so that every
+ * entry goes to the file this resolved, whatever happens to the path
+ * afterwards. Returns -1, having said why, when the trail cannot be kept.
  */
-void audit_log(const char *status, int argc, char **argv, const char *allowlist_path) {
+int audit_open(const char *path) {
+    int fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0600);
+    if (fd == -1) log_error("audit log %s: %s\n", path, strerror(errno));
+    return fd;
+}
+
+/**
+ * Appends one execution event to the audit trail.
+ */
+void audit_log(int fd, const char *status, int argc, char **argv) {
 #ifndef FUZZING
-    char log_path[MAX_ARG_LEN];
-    char *path_copy = strdup(allowlist_path);
-    if (!path_copy) return;
-    
-    char *dir = dirname(path_copy);
-    snprintf(log_path, sizeof(log_path), "%s/host-wrapper.log", dir);
-    free(path_copy);
+    if (fd == -1) return;
 
-    FILE *fp = fopen(log_path, "a");
-    if (!fp) return;
-
+    char ts[64];
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
-    char ts[64];
-    if (t) {
-        strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", t);
-    } else {
+    if (!t || strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", t) == 0) {
         snprintf(ts, sizeof(ts), "unknown time");
     }
 
-    fprintf(fp, "[%s] [%s]", ts, status);
+    // An entry is as long as the argv it reports, so it is built in memory
+    // rather than in a buffer sized for the longest one allowed.
+    char *entry = NULL;
+    size_t len = 0;
+    FILE *mem = open_memstream(&entry, &len);
+    if (!mem) return;
+
+    fprintf(mem, "[%s] [%s]", ts, status);
     for (int i = 0; i < argc; i++) {
-        fprintf(fp, " %s", argv[i]);
+        fprintf(mem, " %s", argv[i]);
     }
-    fprintf(fp, "\n");
-    fclose(fp);
+    fprintf(mem, "\n");
+
+    // One write to an O_APPEND descriptor: two wrappers logging at the same
+    // moment interleave entries, never the bytes of one.
+    if (fclose(mem) == 0) write_all(fd, entry, len);
+    free(entry);
 #else
-    (void)status; (void)argc; (void)argv; (void)allowlist_path;
+    (void)fd; (void)status; (void)argc; (void)argv;
 #endif
 }
 
@@ -707,7 +718,7 @@ TerminalSize parse_terminal_size(ParserContext *ctx) {
     return size;
 }
 
-int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_path,
+int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, int audit_fd,
                 const char *workspace) {
     int ret = EXIT_WRAPPER_ERROR;
     char **target_argv = NULL;
@@ -723,7 +734,7 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     if (!exec_path) {
         log_error("Error: Command '%s' %s\n", target_argv[0],
                   why ? why : "cannot be resolved");
-        audit_log("DENIED ", target_argc, target_argv, allowlist_path);
+        audit_log(audit_fd, "DENIED ", target_argc, target_argv);
         ret = EXIT_DENIED;
         goto cleanup;
     }
@@ -731,12 +742,12 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     AllowlistResult allow_res = check_allowed(exec_path, allowlist_fp, workspace);
     if (!allow_res.allowed) {
         log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
-        audit_log("DENIED ", target_argc, target_argv, allowlist_path);
+        audit_log(audit_fd, "DENIED ", target_argc, target_argv);
         ret = EXIT_DENIED;
         goto cleanup;
     }
 
-    audit_log("ALLOWED", target_argc, target_argv, allowlist_path);
+    audit_log(audit_fd, "ALLOWED", target_argc, target_argv);
 
 #ifndef FUZZING
     // The target runs in the allowlist directory, so its arguments can name
@@ -749,7 +760,7 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const char *allowlist_pa
     ret = execute_command_with_pty(exec_path, target_argv, target_argc, termsize,
                                    allow_res.has_stdin);
 #else
-    (void)allowlist_path;
+    (void)audit_fd;
     (void)termsize;
     ret = 0; // Success in fuzzing mode
 #endif
@@ -786,8 +797,28 @@ int main(int argc, char *argv[]) {
         return EXIT_WRAPPER_ERROR;
     }
 
+    // Opened here, before the target's working directory is entered, so that
+    // the trail can live somewhere the target has no way to reach.
+    char log_path[PATH_MAX];
+    if (snprintf(log_path, sizeof(log_path), "%s/host-wrapper.log", workspace)
+            >= (int)sizeof(log_path)) {
+        log_error("audit log path under %s: too long\n", workspace);
+        free(workspace);
+        fclose(fp);
+        return EXIT_WRAPPER_ERROR;
+    }
+
+    // A request served without a trail is a request nobody can account for.
+    int audit_fd = audit_open(log_path);
+    if (audit_fd == -1) {
+        free(workspace);
+        fclose(fp);
+        return EXIT_WRAPPER_ERROR;
+    }
+
     ParserContext ctx = { .fd = STDIN_FILENO, .buf = NULL, .size = 0, .pos = 0 };
-    int ret = run_wrapper(&ctx, fp, allowlist_path, workspace);
+    int ret = run_wrapper(&ctx, fp, audit_fd, workspace);
+    close(audit_fd);
     free(workspace);
     fclose(fp);
     return ret;

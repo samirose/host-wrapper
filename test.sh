@@ -464,12 +464,35 @@ run_test_exit "Unresolvable allowlist entry refused" 125 \
     "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
     "$LOCAL_HOST_WRAPPER" "$UNRESOLVABLE_ALLOWLIST"
 
-# Scenario 28: host-proxy's own failures
+# Scenario 28: The audit trail
+# A denial is as accountable as a run, so both outcomes are asserted, and on
+# the entries these two requests added rather than on the file existing.
+AUDIT_LOG="./host-wrapper.log"
+"$LOCAL_HOST_PROXY" "$PRINTF_BIN" audited </dev/null >/dev/null 2>&1
+"$LOCAL_HOST_PROXY" "$ID_BIN" </dev/null >/dev/null 2>&1
+AUDIT_TAIL=$(tail -n 2 "$AUDIT_LOG" 2>/dev/null)
+assert_contains "Audit records an allowed command" \
+    "$AUDIT_TAIL" "[ALLOWED] $PRINTF_BIN audited"
+assert_contains "Audit records a denied command" \
+    "$AUDIT_TAIL" "[DENIED ] $ID_BIN"
+
+# A request nobody could account for is refused rather than served quietly.
+# A directory in the log's place, rather than a mode the suite could chmod
+# away: root ignores the mode, and the Linux run is root.
+BLOCKED_DIR="./blocked"
+mkdir -p "$BLOCKED_DIR/host-wrapper.log"
+cp "$ALLOWLIST" "$BLOCKED_DIR/allowlist"
+run_test_exit "Unopenable audit log refuses the request" 125 \
+    "/blocked/host-wrapper.log: " \
+    "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
+    "$LOCAL_HOST_WRAPPER" "$BLOCKED_DIR/allowlist"
+
+# Scenario 29: host-proxy's own failures
 run_test_exit "Proxy usage error exits 125" 125 "Usage:" "" "$LOCAL_HOST_PROXY"
 run_test_exit "Unrunnable connector exits 125" 125 "execvp failed" "" \
     env HOST_PROXY_SSH_SCRIPT=./no-such-connector "$LOCAL_HOST_PROXY" "$UNAME_BIN"
 
-# Scenario 29: Connector killed by a signal
+# Scenario 30: Connector killed by a signal
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
 kill -TERM \$\$
