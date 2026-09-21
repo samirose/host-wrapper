@@ -502,6 +502,18 @@ run_test_exit "No state directory names the option" 125 \
     "name one with -l" "$UNAME_REQUEST" \
     env -u XDG_STATE_HOME -u HOME "$LOCAL_HOST_WRAPPER" "$DEFAULT_ALLOWLIST"
 
+# An argument is data, not a line. A newline in one would otherwise append an
+# entry of the guest's own wording, which is the trail losing its point.
+FORGED='x
+[2020-01-01 00:00:00] [ALLOWED] [admin] [-] /bin/sh'
+AUDIT_BEFORE=$(wc -l < "$AUDIT_LOG" | tr -d ' ')
+"$LOCAL_HOST_PROXY" "$PRINTF_BIN" "$FORGED" </dev/null >/dev/null 2>&1
+AUDIT_AFTER=$(wc -l < "$AUDIT_LOG" | tr -d ' ')
+assert_equals "A forged entry stays one entry" \
+    "$((AUDIT_AFTER - AUDIT_BEFORE))" "1"
+assert_contains "Control bytes in an argument are escaped" \
+    "$(tail -n 1 "$AUDIT_LOG")" 'x\x0a[2020-01-01'
+
 # Who ran what: the label names the key the host is serving, and the peer
 # comes from sshd rather than from anything the guest sends.
 printf '%s' "$UNAME_REQUEST" | env SSH_CONNECTION="192.0.2.5 51000 192.0.2.1 22" \

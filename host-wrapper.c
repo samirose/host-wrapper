@@ -199,6 +199,23 @@ typedef struct AuditLog {
 } AuditLog;
 
 /**
+ * Writes one argument as text that cannot leave the line it is on. The request
+ * comes from the guest, so an argument carrying a newline would otherwise
+ * append an entry of the guest's own wording to the trail.
+ */
+static void audit_write_arg(FILE *out, const char *arg) {
+    for (const unsigned char *p = (const unsigned char *)arg; *p; p++) {
+        if (*p == '\\') {
+            fputs("\\\\", out);
+        } else if (*p < 0x20 || *p == 0x7f) {
+            fprintf(out, "\\x%02x", *p);
+        } else {
+            fputc(*p, out);
+        }
+    }
+}
+
+/**
  * Appends one execution event to the audit trail.
  */
 void audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
@@ -221,7 +238,8 @@ void audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
 
     fprintf(mem, "[%s] [%s] [%s] [%s]", ts, status, log->label, log->client);
     for (int i = 0; i < argc; i++) {
-        fprintf(mem, " %s", argv[i]);
+        fputc(' ', mem);
+        audit_write_arg(mem, argv[i]);
     }
     fprintf(mem, "\n");
 
