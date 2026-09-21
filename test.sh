@@ -479,6 +479,29 @@ assert_contains "Audit records an allowed command" \
 assert_contains "Audit records a denied command" \
     "$AUDIT_TAIL" "[DENIED ] $ID_BIN"
 
+# Where the trail goes when the forced command does not name one. Both
+# directories are inside the scratch directory, so the suite never writes to
+# the state directory of whoever is running it.
+DEFAULT_ALLOWLIST="./default-allowlist"
+printf '%s\n' "$UNAME_BIN" > "$DEFAULT_ALLOWLIST"
+UNAME_REQUEST="5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN,"
+
+printf '%s' "$UNAME_REQUEST" | env XDG_STATE_HOME="$TEST_DIR/state" \
+    "$LOCAL_HOST_WRAPPER" "$DEFAULT_ALLOWLIST" >/dev/null 2>&1
+assert_contains "Default trail goes to the state directory" \
+    "$(cat "$TEST_DIR/state/host-wrapper/audit.log" 2>/dev/null)" \
+    "[ALLOWED] $UNAME_BIN"
+
+printf '%s' "$UNAME_REQUEST" | env -u XDG_STATE_HOME HOME="$TEST_DIR/home" \
+    "$LOCAL_HOST_WRAPPER" "$DEFAULT_ALLOWLIST" >/dev/null 2>&1
+assert_contains "Default trail follows HOME" \
+    "$(cat "$TEST_DIR/home/.local/state/host-wrapper/audit.log" 2>/dev/null)" \
+    "[ALLOWED] $UNAME_BIN"
+
+run_test_exit "No state directory names the option" 125 \
+    "name one with -l" "$UNAME_REQUEST" \
+    env -u XDG_STATE_HOME -u HOME "$LOCAL_HOST_WRAPPER" "$DEFAULT_ALLOWLIST"
+
 # The trail outlives what it audits, because the forced command puts it
 # outside the directory the target runs in. A workspace of its own here, so
 # that what the target deletes is a whole workspace rather than one file.

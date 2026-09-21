@@ -122,6 +122,35 @@ int make_parent_dirs(const char *path) {
 }
 
 /**
+ * Where the trail goes when the forced command does not name a path: the
+ * user's state directory, which is outside every workspace the wrapper can be
+ * pointed at. Returns -1, having said why, when there is no such directory.
+ */
+int default_audit_path(char *buf, size_t size) {
+    const char *state = getenv("XDG_STATE_HOME");
+    int n;
+
+    if (state && *state) {
+        n = snprintf(buf, size, "%s/host-wrapper/audit.log", state);
+    } else {
+        const char *home = getenv("HOME");
+        if (!home || !*home) {
+            log_error("audit log: neither XDG_STATE_HOME nor HOME is set;"
+                      " name one with -l\n");
+            return -1;
+        }
+        n = snprintf(buf, size, "%s/.local/state/host-wrapper/audit.log", home);
+    }
+
+    if (n < 0 || (size_t)n >= size) {
+        log_error("audit log: the default path is too long;"
+                  " name one with -l\n");
+        return -1;
+    }
+    return 0;
+}
+
+/**
  * Opens the audit trail for appending. Held open for the run, so that every
  * entry goes to the file this resolved, whatever happens to the path
  * afterwards. Returns -1, having said why, when the trail cannot be kept.
@@ -850,9 +879,7 @@ int main(int argc, char *argv[]) {
     // the trail can live somewhere the target has no way to reach.
     char default_path[PATH_MAX];
     if (!log_path) {
-        if (snprintf(default_path, sizeof(default_path), "%s/host-wrapper.log",
-                     workspace) >= (int)sizeof(default_path)) {
-            log_error("audit log path under %s: too long\n", workspace);
+        if (default_audit_path(default_path, sizeof(default_path)) == -1) {
             free(workspace);
             fclose(fp);
             return EXIT_WRAPPER_ERROR;
