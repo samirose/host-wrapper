@@ -12,7 +12,10 @@ typedef struct {
     size_t pos;
 } ParserContext;
 
-int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, int audit_fd,
+// Opaque here: the fuzzer runs without an audit trail.
+typedef struct AuditLog AuditLog;
+
+int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
                 const char *workspace);
 
 // libFuzzer entry point
@@ -50,7 +53,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     };
 
     // Run the parser logic
-    run_wrapper(&ctx, allowlist_fp, -1, "/dummy/path");
+    run_wrapper(&ctx, allowlist_fp, NULL, "/dummy/path");
 
     fclose(allowlist_fp);
     return 0;

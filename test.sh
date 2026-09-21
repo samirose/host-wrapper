@@ -475,9 +475,9 @@ run_test_exit "Unresolvable allowlist entry refused" 125 \
 "$LOCAL_HOST_PROXY" "$ID_BIN" </dev/null >/dev/null 2>&1
 AUDIT_TAIL=$(tail -n 2 "$AUDIT_LOG" 2>/dev/null)
 assert_contains "Audit records an allowed command" \
-    "$AUDIT_TAIL" "[ALLOWED] $PRINTF_BIN audited"
+    "$AUDIT_TAIL" "[ALLOWED] [-] [-] $PRINTF_BIN audited"
 assert_contains "Audit records a denied command" \
-    "$AUDIT_TAIL" "[DENIED ] $ID_BIN"
+    "$AUDIT_TAIL" "[DENIED ] [-] [-] $ID_BIN"
 
 # Where the trail goes when the forced command does not name one. Both
 # directories are inside the scratch directory, so the suite never writes to
@@ -490,17 +490,26 @@ printf '%s' "$UNAME_REQUEST" | env XDG_STATE_HOME="$TEST_DIR/state" \
     "$LOCAL_HOST_WRAPPER" "$DEFAULT_ALLOWLIST" >/dev/null 2>&1
 assert_contains "Default trail goes to the state directory" \
     "$(cat "$TEST_DIR/state/host-wrapper/audit.log" 2>/dev/null)" \
-    "[ALLOWED] $UNAME_BIN"
+    "[ALLOWED] [-] [-] $UNAME_BIN"
 
 printf '%s' "$UNAME_REQUEST" | env -u XDG_STATE_HOME HOME="$TEST_DIR/home" \
     "$LOCAL_HOST_WRAPPER" "$DEFAULT_ALLOWLIST" >/dev/null 2>&1
 assert_contains "Default trail follows HOME" \
     "$(cat "$TEST_DIR/home/.local/state/host-wrapper/audit.log" 2>/dev/null)" \
-    "[ALLOWED] $UNAME_BIN"
+    "[ALLOWED] [-] [-] $UNAME_BIN"
 
 run_test_exit "No state directory names the option" 125 \
     "name one with -l" "$UNAME_REQUEST" \
     env -u XDG_STATE_HOME -u HOME "$LOCAL_HOST_WRAPPER" "$DEFAULT_ALLOWLIST"
+
+# Who ran what: the label names the key the host is serving, and the peer
+# comes from sshd rather than from anything the guest sends.
+printf '%s' "$UNAME_REQUEST" | env SSH_CONNECTION="192.0.2.5 51000 192.0.2.1 22" \
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" -n project-a "$DEFAULT_ALLOWLIST" \
+    >/dev/null 2>&1
+assert_contains "Audit records the label and the peer" \
+    "$(tail -n 1 "$AUDIT_LOG")" \
+    "[ALLOWED] [project-a] [192.0.2.5 51000] $UNAME_BIN"
 
 # The trail outlives what it audits, because the forced command puts it
 # outside the directory the target runs in. A workspace of its own here, so
@@ -517,7 +526,7 @@ EOF
 "$LOCAL_HOST_PROXY" "$RM_BIN" -f ./allowlist </dev/null >/dev/null 2>&1
 assert_equals "Audited command emptied its workspace" "$(ls "$GUARDED_WS")" ""
 assert_contains "Audit survives the command it audits" \
-    "$(cat "$GUARDED_LOG" 2>/dev/null)" "[ALLOWED] $RM_BIN -f ./allowlist"
+    "$(cat "$GUARDED_LOG" 2>/dev/null)" "[ALLOWED] [-] [-] $RM_BIN -f ./allowlist"
 
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh

@@ -164,11 +164,46 @@ int audit_open(const char *path) {
 }
 
 /**
+ * Who is on the other end, as sshd reports it: SSH_CONNECTION's first two
+ * fields are the client address and port, and the rest describes this host.
+ * Writes "-" when nothing started the wrapper over SSH.
+ */
+void audit_client(char *buf, size_t size) {
+    const char *conn = getenv("SSH_CONNECTION");
+    size_t n = 0;
+    int spaces = 0;
+
+    if (conn) {
+        while (conn[n] && n + 1 < size) {
+            if (conn[n] == ' ' && ++spaces == 2) break;
+            n++;
+        }
+    }
+
+    if (n == 0) {
+        snprintf(buf, size, "-");
+        return;
+    }
+    memcpy(buf, conn, n);
+    buf[n] = '\0';
+}
+
+/**
+ * What the trail records besides the request: which key the host is serving,
+ * and which peer asked. Both are settled before a request is read.
+ */
+typedef struct AuditLog {
+    int fd;
+    const char *label;
+    const char *client;
+} AuditLog;
+
+/**
  * Appends one execution event to the audit trail.
  */
-void audit_log(int fd, const char *status, int argc, char **argv) {
+void audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
 #ifndef FUZZING
-    if (fd == -1) return;
+    if (!log || log->fd == -1) return;
 
     char ts[64];
     time_t now = time(NULL);
@@ -184,7 +219,7 @@ void audit_log(int fd, const char *status, int argc, char **argv) {
     FILE *mem = open_memstream(&entry, &len);
     if (!mem) return;
 
-    fprintf(mem, "[%s] [%s]", ts, status);
+    fprintf(mem, "[%s] [%s] [%s] [%s]", ts, status, log->label, log->client);
     for (int i = 0; i < argc; i++) {
         fprintf(mem, " %s", argv[i]);
     }
@@ -192,10 +227,10 @@ void audit_log(int fd, const char *status, int argc, char **argv) {
 
     // One write to an O_APPEND descriptor: two wrappers logging at the same
     // moment interleave entries, never the bytes of one.
-    if (fclose(mem) == 0) write_all(fd, entry, len);
+    if (fclose(mem) == 0) write_all(log->fd, entry, len);
     free(entry);
 #else
-    (void)fd; (void)status; (void)argc; (void)argv;
+    (void)log; (void)status; (void)argc; (void)argv;
 #endif
 }
 
@@ -781,7 +816,7 @@ TerminalSize parse_terminal_size(ParserContext *ctx) {
     return size;
 }
 
-int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, int audit_fd,
+int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
                 const char *workspace) {
     int ret = EXIT_WRAPPER_ERROR;
     char **target_argv = NULL;
@@ -797,7 +832,7 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, int audit_fd,
     if (!exec_path) {
         log_error("Error: Command '%s' %s\n", target_argv[0],
                   why ? why : "cannot be resolved");
-        audit_log(audit_fd, "DENIED ", target_argc, target_argv);
+        audit_log(audit, "DENIED ", target_argc, target_argv);
         ret = EXIT_DENIED;
         goto cleanup;
     }
@@ -805,12 +840,12 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, int audit_fd,
     AllowlistResult allow_res = check_allowed(exec_path, allowlist_fp, workspace);
     if (!allow_res.allowed) {
         log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
-        audit_log(audit_fd, "DENIED ", target_argc, target_argv);
+        audit_log(audit, "DENIED ", target_argc, target_argv);
         ret = EXIT_DENIED;
         goto cleanup;
     }
 
-    audit_log(audit_fd, "ALLOWED", target_argc, target_argv);
+    audit_log(audit, "ALLOWED", target_argc, target_argv);
 
 #ifndef FUZZING
     // The target runs in the allowlist directory, so its arguments can name
@@ -823,7 +858,7 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, int audit_fd,
     ret = execute_command_with_pty(exec_path, target_argv, target_argc, termsize,
                                    allow_res.has_stdin);
 #else
-    (void)audit_fd;
+    (void)audit;
     (void)termsize;
     ret = 0; // Success in fuzzing mode
 #endif
@@ -835,24 +870,28 @@ cleanup:
 }
 
 #ifndef FUZZING
+void usage(const char *program) {
+    fprintf(stderr, "Usage: %s [-l audit_log_path] [-n label] <allowlist_path>\n",
+            program);
+}
+
 int main(int argc, char *argv[]) {
     const char *log_path = NULL;
+    const char *label = "-";
     int opt;
 
     // Options come from the forced command in authorized_keys, so they are the
     // host's settings for this key and never the guest's.
-    while ((opt = getopt(argc, argv, "l:")) != -1) {
-        if (opt != 'l') {
-            fprintf(stderr, "Usage: %s [-l audit_log_path] <allowlist_path>\n",
-                    argv[0]);
-            return EXIT_WRAPPER_ERROR;
+    while ((opt = getopt(argc, argv, "l:n:")) != -1) {
+        switch (opt) {
+        case 'l': log_path = optarg; break;
+        case 'n': label = optarg; break;
+        default:  usage(argv[0]); return EXIT_WRAPPER_ERROR;
         }
-        log_path = optarg;
     }
 
     if (optind >= argc) {
-        fprintf(stderr, "Usage: %s [-l audit_log_path] <allowlist_path>\n",
-                argv[0]);
+        usage(argv[0]);
         return EXIT_WRAPPER_ERROR;
     }
     const char *allowlist_path = argv[optind];
@@ -896,7 +935,13 @@ int main(int argc, char *argv[]) {
     }
 
     ParserContext ctx = { .fd = STDIN_FILENO, .buf = NULL, .size = 0, .pos = 0 };
-    int ret = run_wrapper(&ctx, fp, audit_fd, workspace);
+    // Settled before a request is read: the trail says which key the host is
+    // serving and which peer asked, neither of which the guest chooses.
+    char client[128];
+    audit_client(client, sizeof(client));
+    AuditLog audit = { .fd = audit_fd, .label = label, .client = client };
+
+    int ret = run_wrapper(&ctx, fp, &audit, workspace);
     close(audit_fd);
     free(workspace);
     fclose(fp);
