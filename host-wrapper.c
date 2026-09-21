@@ -34,6 +34,7 @@
 #include <libgen.h>
 #include <time.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <termios.h>
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
@@ -90,11 +91,44 @@ void log_error(const char *format, ...) {
 }
 
 /**
+ * Creates the directories leading to path, each private to the user. The log
+ * is placed rather than asked to follow a directory somebody prepared, so a
+ * host that has never run the wrapper needs nothing set up by hand.
+ */
+int make_parent_dirs(const char *path) {
+    char dir[PATH_MAX];
+    if (snprintf(dir, sizeof(dir), "%s", path) >= (int)sizeof(dir)) {
+        log_error("audit log %s: path too long\n", path);
+        return -1;
+    }
+
+    char *last = strrchr(dir, '/');
+    if (!last || last == dir) return 0; // The root, or the current directory.
+    *last = '\0';
+
+    // From the second byte, so that an absolute path does not begin with an
+    // mkdir of the empty string.
+    for (char *p = dir + 1; ; p++) {
+        if (*p != '/' && *p != '\0') continue;
+        char sep = *p;
+        *p = '\0';
+        if (mkdir(dir, 0700) == -1 && errno != EEXIST) {
+            log_error("audit log directory %s: %s\n", dir, strerror(errno));
+            return -1;
+        }
+        *p = sep;
+        if (sep == '\0') return 0;
+    }
+}
+
+/**
  * Opens the audit trail for appending. Held open for the run, so that every
  * entry goes to the file this resolved, whatever happens to the path
  * afterwards. Returns -1, having said why, when the trail cannot be kept.
  */
 int audit_open(const char *path) {
+    if (make_parent_dirs(path) == -1) return -1;
+
     int fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0600);
     if (fd == -1) log_error("audit log %s: %s\n", path, strerror(errno));
     return fd;
@@ -773,11 +807,26 @@ cleanup:
 
 #ifndef FUZZING
 int main(int argc, char *argv[]) {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <allowlist_path>\n", argv[0]);
+    const char *log_path = NULL;
+    int opt;
+
+    // Options come from the forced command in authorized_keys, so they are the
+    // host's settings for this key and never the guest's.
+    while ((opt = getopt(argc, argv, "l:")) != -1) {
+        if (opt != 'l') {
+            fprintf(stderr, "Usage: %s [-l audit_log_path] <allowlist_path>\n",
+                    argv[0]);
+            return EXIT_WRAPPER_ERROR;
+        }
+        log_path = optarg;
+    }
+
+    if (optind >= argc) {
+        fprintf(stderr, "Usage: %s [-l audit_log_path] <allowlist_path>\n",
+                argv[0]);
         return EXIT_WRAPPER_ERROR;
     }
-    const char *allowlist_path = argv[1];
+    const char *allowlist_path = argv[optind];
 
     FILE *fp = fopen(allowlist_path, "r");
     if (!fp) {
@@ -799,13 +848,16 @@ int main(int argc, char *argv[]) {
 
     // Opened here, before the target's working directory is entered, so that
     // the trail can live somewhere the target has no way to reach.
-    char log_path[PATH_MAX];
-    if (snprintf(log_path, sizeof(log_path), "%s/host-wrapper.log", workspace)
-            >= (int)sizeof(log_path)) {
-        log_error("audit log path under %s: too long\n", workspace);
-        free(workspace);
-        fclose(fp);
-        return EXIT_WRAPPER_ERROR;
+    char default_path[PATH_MAX];
+    if (!log_path) {
+        if (snprintf(default_path, sizeof(default_path), "%s/host-wrapper.log",
+                     workspace) >= (int)sizeof(default_path)) {
+            log_error("audit log path under %s: too long\n", workspace);
+            free(workspace);
+            fclose(fp);
+            return EXIT_WRAPPER_ERROR;
+        }
+        log_path = default_path;
     }
 
     // A request served without a trail is a request nobody can account for.

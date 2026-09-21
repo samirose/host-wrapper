@@ -31,6 +31,10 @@ done
 cd "$TEST_DIR" || exit 1
 
 ALLOWLIST="./allowlist"
+# Named explicitly, as the forced command names it: the trail belongs outside
+# the directory the target runs in, and here that keeps it out of the
+# workspace the scenarios inspect.
+AUDIT_LOG="./audit.log"
 # Use localized paths within the isolated directory
 LOCAL_HOST_PROXY="./host-proxy"
 LOCAL_HOST_WRAPPER="./host-wrapper"
@@ -83,7 +87,7 @@ EOF
 # This intercepts the connection from host-proxy and routes it locally.
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
-exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 EOF
 chmod +x "host-proxy-ssh.sh"
 
@@ -193,13 +197,13 @@ echo "$FALSE_BIN" >> "$ALLOWLIST"
 run_test_exit "Exit code propagation" 1 "" "" "$LOCAL_HOST_PROXY" "$FALSE_BIN"
 
 # Scenario 6: Malformed header
-run_test_exit "Malformed header" 125 "Error: Malformed netstring" "malformed" "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Malformed header" 125 "Error: Malformed netstring" "malformed" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 7: Header length too long (exceeds MAX_ARG_LEN of 65536)
-run_test_exit "Header too long limit" 125 "Error: Argument too long (999999 bytes)" "999999:toobig," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Header too long limit" 125 "Error: Argument too long (999999 bytes)" "999999:toobig," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 8: Header digits exceed buffer (more than 15 digits)
-run_test_exit "Header digits overflow" 125 "Error: Netstring length too long" "12345678901234567890:toobig," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Header digits overflow" 125 "Error: Netstring length too long" "12345678901234567890:toobig," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 9: Verify no-hang when host command finishes but stdin is still open
 FIFO="./test_fifo"
@@ -255,19 +259,19 @@ done
 run_test_exit "SIGPIPE resilience" 125 "" "" "$LOCAL_HOST_PROXY" "$LS_BIN" $ARGS
 
 # Scenario 11: Invalid argc (0 or negative)
-run_test_exit "Invalid argc (0)" 125 "Error: Invalid target argc (0)" "5:80,24,1:0," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Invalid argc (0)" 125 "Error: Invalid target argc (0)" "5:80,24,1:0," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 12: argc too large
-run_test_exit "Argc too large" 125 "Error: Invalid target argc (1025)" "5:80,24,4:1025," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Argc too large" 125 "Error: Invalid target argc (1025)" "5:80,24,4:1025," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 13: Partial match in allowlist (prefix/suffix)
 # A prefix of an allowlisted path must not match it.
 UNAME_PREFIX=${UNAME_BIN%??}
-run_test_exit "Allowlist prefix match" 126 "Error: Command '$UNAME_PREFIX' not in allowlist" "5:80,24,1:1,${#UNAME_PREFIX}:$UNAME_PREFIX," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Allowlist prefix match" 126 "Error: Command '$UNAME_PREFIX' not in allowlist" "5:80,24,1:1,${#UNAME_PREFIX}:$UNAME_PREFIX," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 14: Premature EOF in netstring data
 # Header says 1 byte, but we send '1' and then close without the comma.
-run_test_exit "Premature EOF" 125 "Error: Malformed netstring (expected ',')" "2:1,1:1" "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Premature EOF" 125 "Error: Malformed netstring (expected ',')" "2:1,1:1" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 15: Extremely long allowlist line (testing getline)
 # Use OS max path limit divided into valid NAME_MAX chunks, plus a long comment
@@ -284,7 +288,7 @@ LONG_PATH=$(printf '%s' "$LONG_PATH" | cut -c "1-$TARGET_LEN")
 
 LONG_COMMENT=$(printf '%2000s' '' | tr ' ' 'C')
 echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
-run_test_exit "Long allowlist line match" 127 "execv: No such file or directory" "5:80,24,1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+run_test_exit "Long allowlist line match" 127 "execv: No such file or directory" "5:80,24,1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 17: Context-aware Working Directory (chdir)
 # Create a subdirectory, move allowlist there, and verify 'pwd' starts in that directory
@@ -307,7 +311,7 @@ assert_contains "Context-aware Working Directory (chdir)" "$ACTUAL_PWD" "/subdir
 # Restore the real ssh shim
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
-exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 EOF
 chmod +x "host-proxy-ssh.sh"
 
@@ -342,7 +346,7 @@ EOF
 # Point our ssh stub to the wrapper using the temp allowlist
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
-exec "$LOCAL_HOST_WRAPPER" "$TEMP_ALLOWLIST"
+exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$TEMP_ALLOWLIST"
 EOF
 
 ACTUAL_OUT=$(printf '%s' "hello stream" | "$LOCAL_HOST_PROXY" "$WC_BIN" -c 2>&1)
@@ -360,7 +364,7 @@ esac
 # Restore the original allowlist and stub ssh
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
-exec "$LOCAL_HOST_WRAPPER" "$ALLOWLIST"
+exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 EOF
 
 # Scenario 20: Large output integrity
@@ -417,7 +421,7 @@ assert_equals "Exec failure reported once" "$(grep -c 'execv:' "$CAPTURE_ERR")" 
 run_test_exit "Signal exits 128+n" 143 "" "" "$LOCAL_HOST_PROXY" "$SH_BIN" -c 'kill -TERM $$'
 
 # Scenario 25: Unreadable allowlist
-run_test_exit "Missing allowlist exits 125" 125 "fopen allowlist:" "" "$LOCAL_HOST_WRAPPER" ./no-such-allowlist
+run_test_exit "Missing allowlist exits 125" 125 "fopen allowlist:" "" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" ./no-such-allowlist
 
 # Scenario 26: Commands named relative to the allowlist directory
 # The entry and the request resolve against the same directory, so a project
@@ -462,12 +466,11 @@ EOF
 run_test_exit "Unresolvable allowlist entry refused" 125 \
     "Error: $UNRESOLVABLE_ALLOWLIST:2: 'wc' has no directory" \
     "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
-    "$LOCAL_HOST_WRAPPER" "$UNRESOLVABLE_ALLOWLIST"
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$UNRESOLVABLE_ALLOWLIST"
 
 # Scenario 28: The audit trail
 # A denial is as accountable as a run, so both outcomes are asserted, and on
 # the entries these two requests added rather than on the file existing.
-AUDIT_LOG="./host-wrapper.log"
 "$LOCAL_HOST_PROXY" "$PRINTF_BIN" audited </dev/null >/dev/null 2>&1
 "$LOCAL_HOST_PROXY" "$ID_BIN" </dev/null >/dev/null 2>&1
 AUDIT_TAIL=$(tail -n 2 "$AUDIT_LOG" 2>/dev/null)
@@ -476,16 +479,37 @@ assert_contains "Audit records an allowed command" \
 assert_contains "Audit records a denied command" \
     "$AUDIT_TAIL" "[DENIED ] $ID_BIN"
 
+# The trail outlives what it audits, because the forced command puts it
+# outside the directory the target runs in. A workspace of its own here, so
+# that what the target deletes is a whole workspace rather than one file.
+RM_BIN=$(find_bin rm)
+GUARDED_WS="./guarded"
+GUARDED_LOG="$TEST_DIR/guarded-audit.log"
+mkdir -p "$GUARDED_WS"
+printf '%s\n' "$RM_BIN" > "$GUARDED_WS/allowlist"
+cat <<EOF > "host-proxy-ssh.sh"
+#!/bin/sh
+exec "$LOCAL_HOST_WRAPPER" -l "$GUARDED_LOG" "$GUARDED_WS/allowlist"
+EOF
+"$LOCAL_HOST_PROXY" "$RM_BIN" -f ./allowlist </dev/null >/dev/null 2>&1
+assert_equals "Audited command emptied its workspace" "$(ls "$GUARDED_WS")" ""
+assert_contains "Audit survives the command it audits" \
+    "$(cat "$GUARDED_LOG" 2>/dev/null)" "[ALLOWED] $RM_BIN -f ./allowlist"
+
+cat <<EOF > "host-proxy-ssh.sh"
+#!/bin/sh
+exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+EOF
+
 # A request nobody could account for is refused rather than served quietly.
-# A directory in the log's place, rather than a mode the suite could chmod
-# away: root ignores the mode, and the Linux run is root.
-BLOCKED_DIR="./blocked"
-mkdir -p "$BLOCKED_DIR/host-wrapper.log"
-cp "$ALLOWLIST" "$BLOCKED_DIR/allowlist"
+# The log is placed under a plain file, which no user can turn into a
+# directory: a mode the suite could chmod away would not stop root, and the
+# Linux run is root.
+: > ./notadir
 run_test_exit "Unopenable audit log refuses the request" 125 \
-    "/blocked/host-wrapper.log: " \
+    "audit log ./notadir/audit.log: " \
     "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
-    "$LOCAL_HOST_WRAPPER" "$BLOCKED_DIR/allowlist"
+    "$LOCAL_HOST_WRAPPER" -l ./notadir/audit.log "$ALLOWLIST"
 
 # Scenario 29: host-proxy's own failures
 run_test_exit "Proxy usage error exits 125" 125 "Usage:" "" "$LOCAL_HOST_PROXY"
