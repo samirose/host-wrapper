@@ -147,11 +147,13 @@ files by shebang rather than by name, so the check picks up new scripts on its
 own and stays quiet about the tier 3 files that are legitimately bash. The
 parameter expansion pattern deliberately excludes `:-` and `:=`, both POSIX.
 `local` and `source` are matched in command position rather than anywhere, so
-that a path such as `~/.local/state` is not a violation:
+that a path such as `~/.local/state` is not a violation, and `[[` is matched
+only where a character class does not follow, so that `[[:space:]]` is not one
+either:
 
     for f in *.sh examples/*.sh share/*.sh; do
         [ "$(head -n 1 "$f")" = "#!/bin/sh" ] || continue
-        grep -nE '\[\[|(^|[;&|(])[[:space:]]*(local|source)[[:space:]]|<<<|\becho +-[neE]|\+=|pipefail|\bfunction +[A-Za-z_]+ *\(|\$\{[A-Za-z_][A-Za-z0-9_]*(:[0-9]|/|\^|,)' "$f"
+        grep -nE '\[\[[^:]|(^|[;&|(])[[:space:]]*(local|source)[[:space:]]|<<<|\becho +-[neE]|\+=|pipefail|\bfunction +[A-Za-z_]+ *\(|\$\{[A-Za-z_][A-Za-z0-9_]*(:[0-9]|/|\^|,)' "$f"
     done
 
 Test the first line rather than using `grep -l`, which would match the
