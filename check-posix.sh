@@ -18,7 +18,7 @@ status=0
 # Bash constructs that either fail to parse under a POSIX shell or, worse, parse
 # and behave differently. The parameter expansion alternatives deliberately omit
 # ":-" and ":=", both of which are POSIX.
-BASHISMS='\[\[|\blocal\b|\bsource\b|<<<|\becho +-[neE]|\+=|pipefail|\bfunction +[A-Za-z_]+ *\(|\$\{[A-Za-z_][A-Za-z0-9_]*(:[0-9]|/|\^|,)'
+BASHISMS='\[\[|(^|[;&|(])[[:space:]]*(local|source)[[:space:]]|<<<|\becho +-[neE]|\+=|pipefail|\bfunction +[A-Za-z_]+ *\(|\$\{[A-Za-z_][A-Za-z0-9_]*(:[0-9]|/|\^|,)'
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2

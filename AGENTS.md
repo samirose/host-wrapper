@@ -145,11 +145,13 @@ script would never be exercised by a POSIX shell at all.
 Grep for the bashisms that parse cleanly but behave differently. Select the
 files by shebang rather than by name, so the check picks up new scripts on its
 own and stays quiet about the tier 3 files that are legitimately bash. The
-parameter expansion pattern deliberately excludes `:-` and `:=`, both POSIX:
+parameter expansion pattern deliberately excludes `:-` and `:=`, both POSIX.
+`local` and `source` are matched in command position rather than anywhere, so
+that a path such as `~/.local/state` is not a violation:
 
     for f in *.sh examples/*.sh share/*.sh; do
         [ "$(head -n 1 "$f")" = "#!/bin/sh" ] || continue
-        grep -nE '\[\[|\blocal\b|\bsource\b|<<<|\becho +-[neE]|\+=|pipefail|\bfunction +[A-Za-z_]+ *\(|\$\{[A-Za-z_][A-Za-z0-9_]*(:[0-9]|/|\^|,)' "$f"
+        grep -nE '\[\[|(^|[;&|(])[[:space:]]*(local|source)[[:space:]]|<<<|\becho +-[neE]|\+=|pipefail|\bfunction +[A-Za-z_]+ *\(|\$\{[A-Za-z_][A-Za-z0-9_]*(:[0-9]|/|\^|,)' "$f"
     done
 
 Test the first line rather than using `grep -l`, which would match the
