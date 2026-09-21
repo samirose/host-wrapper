@@ -157,7 +157,7 @@ There is a test script that test behaviour and key security features. The host-s
    - The label is `-n <label>` from the forced command and the peer is sshd's `SSH_CONNECTION`, so an entry names the key that asked rather than anything the guest sends.
    - `-l <path>` places the log; the default is `${XDG_STATE_HOME:-$HOME/.local/state}/host-wrapper/audit.log`. Either way it sits outside the allowlist directory, where the audited commands run, so an allowed command cannot rewrite its own trail.
    - Arguments are written with control bytes escaped as `\xNN`: one attempt is one line, and a request cannot forge an entry of its own.
-   - A log that cannot be opened stops the wrapper before it serves anything.
+   - A log the wrapper cannot open, or cannot write the entry to, stops the request before the command runs. An entry is written before the command, so an unrecorded execution is one that has not happened.
 6. **Pinned Host Identity**: The guest verifies the host's SSH host key against a `known_hosts` file written at provisioning time, filed under the fixed alias `host-wrapper` rather than under an address. Because verification does not depend on the address, the connection runs with `StrictHostKeyChecking=yes` even though the container gateway address varies between systems. Without the alias, an address that moves would either fail verification or force host key checking to be turned off, leaving the guest willing to hand its key to whatever answers at the old address.
 
 ### SECURITY DISCLAIMER

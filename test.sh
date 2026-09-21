@@ -555,6 +555,19 @@ run_test_exit "Unopenable audit log refuses the request" 125 \
     "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
     "$LOCAL_HOST_WRAPPER" -l ./notadir/audit.log "$ALLOWLIST"
 
+# A log that opens and then refuses the write is the same failure later on, so
+# the command must not run then either. /dev/full fails every write without a
+# disk to fill; macOS has no equivalent, which is what the guard is for.
+if [ -c /dev/full ]; then
+    run_test_exit "Unwritable entry refuses the request" 125 \
+        "Error: refusing to run a request that was not recorded" \
+        "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
+        "$LOCAL_HOST_WRAPPER" -l /dev/full "$ALLOWLIST"
+    assert_equals "Unrecorded request did not run" "$(cat "$CAPTURE_OUT")" ""
+else
+    printf '  (no /dev/full: skipping the unwritable-entry scenario)\n'
+fi
+
 # Scenario 29: host-proxy's own failures
 run_test_exit "Proxy usage error exits 125" 125 "Usage:" "" "$LOCAL_HOST_PROXY"
 run_test_exit "Unrunnable connector exits 125" 125 "execvp failed" "" \

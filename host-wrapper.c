@@ -216,11 +216,13 @@ static void audit_write_arg(FILE *out, const char *arg) {
 }
 
 /**
- * Appends one execution event to the audit trail.
+ * Appends one execution event to the audit trail. Returns 0 once the entry is
+ * written, -1 when it is not: the caller decides what an unrecorded event is
+ * worth, and for one about to run a command the answer is that it does not.
  */
-void audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
+int audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
 #ifndef FUZZING
-    if (!log || log->fd == -1) return;
+    if (!log || log->fd == -1) return -1;
 
     char ts[64];
     time_t now = time(NULL);
@@ -234,7 +236,10 @@ void audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
     char *entry = NULL;
     size_t len = 0;
     FILE *mem = open_memstream(&entry, &len);
-    if (!mem) return;
+    if (!mem) {
+        log_error("audit log: %s\n", strerror(errno));
+        return -1;
+    }
 
     fprintf(mem, "[%s] [%s] [%s] [%s]", ts, status, log->label, log->client);
     for (int i = 0; i < argc; i++) {
@@ -245,10 +250,13 @@ void audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
 
     // One write to an O_APPEND descriptor: two wrappers logging at the same
     // moment interleave entries, never the bytes of one.
-    if (fclose(mem) == 0) write_all(log->fd, entry, len);
+    int written = (fclose(mem) == 0) ? write_all(log->fd, entry, len) : -1;
+    if (written == -1) log_error("audit log: %s\n", strerror(errno));
     free(entry);
+    return written;
 #else
     (void)log; (void)status; (void)argc; (void)argv;
+    return 0;
 #endif
 }
 
@@ -850,7 +858,7 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
     if (!exec_path) {
         log_error("Error: Command '%s' %s\n", target_argv[0],
                   why ? why : "cannot be resolved");
-        audit_log(audit, "DENIED ", target_argc, target_argv);
+        (void)audit_log(audit, "DENIED ", target_argc, target_argv);
         ret = EXIT_DENIED;
         goto cleanup;
     }
@@ -858,12 +866,17 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
     AllowlistResult allow_res = check_allowed(exec_path, allowlist_fp, workspace);
     if (!allow_res.allowed) {
         log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
-        audit_log(audit, "DENIED ", target_argc, target_argv);
+        (void)audit_log(audit, "DENIED ", target_argc, target_argv);
         ret = EXIT_DENIED;
         goto cleanup;
     }
 
-    audit_log(audit, "ALLOWED", target_argc, target_argv);
+    // The entry precedes the command, so a trail that cannot be written is
+    // still a command that has not run.
+    if (audit_log(audit, "ALLOWED", target_argc, target_argv) == -1) {
+        log_error("Error: refusing to run a request that was not recorded\n");
+        goto cleanup;
+    }
 
 #ifndef FUZZING
     // The target runs in the allowlist directory, so its arguments can name
