@@ -47,7 +47,8 @@ chmod 755 "$GLOBAL_WRAPPER_PATH"
 echo "[*] Setting up host-wrapper to host SSH authorized_keys..."
 PUB_KEY_CONTENT=$(cat "${SSH_KEY_FILE}.pub")
 ABS_ALLOWLIST_PATH="$PROJECT_DIR/$ALLOWLIST_FILE"
-AUTH_LINE="command=\"$GLOBAL_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
+AUDIT_LOG_PATH="$PROJECT_DIR/examples/audit.log"
+AUTH_LINE="command=\"$GLOBAL_WRAPPER_PATH -n $CONTAINER_MACHINE_NAME -l $AUDIT_LOG_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
 
 mkdir -p "$HOME/.ssh"
 if [ ! -f "$HOME/.ssh/authorized_keys" ]; then

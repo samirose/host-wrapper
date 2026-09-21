@@ -52,6 +52,9 @@ SSH_CONNECT_SCRIPT="$CONTAINER_PROJECT_DIR/host-proxy-ssh.sh"
 
 GLOBAL_WRAPPER_PATH="$HOME/.ssh/host-wrapper"
 ABS_ALLOWLIST_PATH="$(pwd)/$ALLOWLIST_FILE"
+# Beside the workspace rather than in it: the allowlist directory is where the
+# audited commands run.
+AUDIT_LOG_PATH="$(pwd)/examples/audit.log"
 PUB_KEY_CONTENT=$(cat "${SSH_KEY_FILE}.pub")
 
 echo "--------------------------------------------------------"
@@ -64,7 +67,7 @@ echo "   chmod 755 $GLOBAL_WRAPPER_PATH"
 echo ""
 echo "2. Add the restricted public key to your host's ~/.ssh/authorized_keys file:"
 echo ""
-echo "command=\"$GLOBAL_WRAPPER_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
+echo "command=\"$GLOBAL_WRAPPER_PATH -n example-container -l $AUDIT_LOG_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
 echo ""
 echo "3. Run in the Nix container environment:"
 echo "   bash examples/run-container.sh"

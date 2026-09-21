@@ -22,7 +22,7 @@ CONTAINER_MACHINE_NAME="${1:-example-container-machine}"
 # The log this example writes, beside its own allowlist. Deliberately not the
 # one belonging to a generic setup.sh install: that one is a different example's
 # evidence and says nothing about this run.
-AUDIT_LOG="./examples/config/host-wrapper.log"
+AUDIT_LOG="./examples/audit.log"
 
 echo "=================================================="
 echo "Running End-to-End Guest-to-Host Integration Tests"

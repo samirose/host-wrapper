@@ -11,6 +11,7 @@ guest/
 .cache/
 guest_share/
 host-wrapper.log
+examples/audit.log
 
 # Fuzzer artifacts
 crash-*
