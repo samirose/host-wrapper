@@ -84,11 +84,11 @@ sequenceDiagram
     Guest->>Proxy: Execute: /usr/bin/wc -l
     Proxy->>Proxy: Format netstrings: 5:80,24,1:2,11:/usr/bin/wc,2:-l,
     Proxy->>SSH: Connect with restricted SSH key
-    SSH->>Wrapper: Launch host-wrapper [allowlist_path]
+    SSH->>Wrapper: Launch host-wrapper [-n label] [-l log] [allowlist_path]
     Proxy->>Wrapper: Pipe framed netstrings over stdin
     Wrapper->>Wrapper: Parse terminal size & command arguments
     Wrapper->>Wrapper: Validate "/usr/bin/wc" against allowlist
-    Wrapper->>Log: Append log event (ALLOWED / /usr/bin/wc)
+    Wrapper->>Log: Append entry (ALLOWED, label, peer, /usr/bin/wc)
     rect green
         Note over Wrapper,HostCmd: Authorization Check: ALLOWED
     end
@@ -141,14 +141,23 @@ To guarantee terminal compliance and color support, approved host processes are 
 There is a test script that test behaviour and key security features. The host-side netstring and argument parser have been extensively fuzzed under AddressSanitizer and UndefinedBehaviorSanitizer to test for memory leaks, crashes, and out-of-bounds access.
 
 ### Key Security Features
-1. **Enforced SSH Command Context**: The client's public key in the host's `~/.ssh/authorized_keys` file is restricted using `command="/path/to/host-wrapper /path/to/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding`. This guarantees that even if a guest container is compromised, it can only invoke the host-wrapper via SSH.
+1. **Enforced SSH Command Context**: The client's public key in the host's `~/.ssh/authorized_keys` file is restricted using `command="/path/to/host-wrapper -n label -l /path/to/audit.log /path/to/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding`. This guarantees that even if a guest container is compromised, it can only invoke the host-wrapper via SSH.
 2. **Working Directory Mapping**: Before executing an approved host command, host-wrapper changes its working directory (`chdir`) to the directory containing the allowlist file. This serves as a convenience, allowing host commands to resolve file paths relative to workspace directory.
 3. **Strict Command Validation**:
    - A command is named either absolutely, or relative to the allowlist directory, which is where it runs: `/usr/bin/uname` or `./build.sh`. A name that is neither — a bare `uname`, or anything with a `..` component — is refused when the allowlist is read, before any request is served.
    - Entry and request are both resolved against that directory and then compared, so the string compared is the file executed. Nothing is looked up on `PATH`: an allowlist naming `/usr/bin/uname` permits `/usr/bin/uname`, and not `uname`.
    - Standard input redirection from proxy to host is blocked by default for all allowed commands unless explicitly overridden in the allowlist using the `+stdin` option.
 4. **Resilient Shell/Injection Prevention**: The wrapper bypasses the shell completely by invoking processes directly using `execv()`. There is no shell evaluation of arguments, preventing command-injection attacks.
-5. **Audit Logging**: Every execution attempt (both `ALLOWED` and `DENIED` actions) is logged to a host-side file with timestamps, target arguments, and client keys, allowing auditing of wrapper actions.
+5. **Audit Logging**: Every attempt, `ALLOWED` or `DENIED`, is recorded on the host:
+
+   ```text
+   [2026-09-21 20:09:44] [ALLOWED] [project-a] [192.168.64.3 51000] /usr/bin/uname -a
+   ```
+
+   - The label is `-n <label>` from the forced command and the peer is sshd's `SSH_CONNECTION`, so an entry names the key that asked rather than anything the guest sends.
+   - `-l <path>` places the log; the default is `${XDG_STATE_HOME:-$HOME/.local/state}/host-wrapper/audit.log`. Either way it sits outside the allowlist directory, where the audited commands run, so an allowed command cannot rewrite its own trail.
+   - Arguments are written with control bytes escaped as `\xNN`: one attempt is one line, and a request cannot forge an entry of its own.
+   - A log that cannot be opened stops the wrapper before it serves anything.
 6. **Pinned Host Identity**: The guest verifies the host's SSH host key against a `known_hosts` file written at provisioning time, filed under the fixed alias `host-wrapper` rather than under an address. Because verification does not depend on the address, the connection runs with `StrictHostKeyChecking=yes` even though the container gateway address varies between systems. Without the alias, an address that moves would either fail verification or force host key checking to be turned off, leaving the guest willing to hand its key to whatever answers at the old address.
 
 ### SECURITY DISCLAIMER
@@ -186,12 +195,13 @@ A single compiled `host-wrapper` binary on your host (e.g., placed at `~/.ssh/ho
 1. **Host-Side Key Allocation**: In your `~/.ssh/authorized_keys`, configure a separate SSH key for each container/project. Link each key to the same wrapper binary, but specify a different, isolated `allowlist` file path:
    ```text
    # Project A (limited to Project A allowlist)
-   command="~/.ssh/host-wrapper ~/ProjectA/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 KEY_A
+   command="~/.ssh/host-wrapper -n project-a ~/ProjectA/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 KEY_A
 
    # Project B (limited to Project B allowlist)
-   command="~/.ssh/host-wrapper ~/ProjectB/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 KEY_B
+   command="~/.ssh/host-wrapper -n project-b ~/ProjectB/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 KEY_B
    ```
 2. **Context Isolation**: When executing commands, `host-wrapper` automatically changes directory to the folder containing the specific allowlist file. This allows scripts in `Project A` to resolve file paths relative to `~/ProjectA/` with absolute path safety.
+3. **Per-Key Attribution**: `-n` names the key in every audit entry it produces, so one shared log tells the projects apart. `-l` gives a project its own log instead.
 
 ---
 
@@ -233,7 +243,7 @@ This script will:
 4. Print the exact line to paste into your host's `$HOME/.ssh/authorized_keys` file, for example:
 
 ```text
-command="/Users/YOUR_USER/.ssh/host-wrapper /Users/YOUR_USER/.config/host-wrapper/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAAC3... host-wrapper.key
+command="/Users/YOUR_USER/.ssh/host-wrapper -n host-wrapper /Users/YOUR_USER/.config/host-wrapper/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAAC3... host-wrapper.key
 ```
 
 ### 3. Client-Side Integration
