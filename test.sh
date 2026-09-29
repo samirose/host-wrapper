@@ -27,6 +27,13 @@ for helper in winsize-probe run-on-pty; do
     cp "$TEST_HELPER_DIR/$helper" "$TEST_DIR/$helper"
 done
 
+# The example wrappers are host-side programs the wrapper execs, so the files
+# the examples ship are what the scenarios below run.
+mkdir -p "$TEST_DIR/wrappers"
+for wrapper in git-sign.sh cc.sh; do
+    cp "$(dirname "$0")/examples/wrappers/$wrapper" "$TEST_DIR/wrappers/" || exit 1
+done
+
 # Move into isolated directory to prevent touching repo files
 cd "$TEST_DIR" || exit 1
 
@@ -596,6 +603,46 @@ if [ -c /dev/full ]; then
 else
     printf '  (no /dev/full: skipping the unwritable-entry scenario)\n'
 fi
+
+# Scenario 28.5: The example wrappers
+# They exist because allowlisting git or a compiler is allowlisting a shell, so
+# what they refuse is asserted rather than described. One stub stands in for both
+# tools: what is under test is which invocations reach a tool at all.
+cat > "./wrappers/stub-tool" <<'EOF'
+#!/bin/sh
+printf 'ran:'
+for a in "$@"; do printf ' [%s]' "$a"; done
+printf '\n'
+EOF
+chmod +x "./wrappers/stub-tool"
+
+# Each wrapper takes the tool from the environment, which belongs to the host: a
+# request carries arguments and nothing else.
+GIT="$TEST_DIR/wrappers/stub-tool"
+CC="$TEST_DIR/wrappers/stub-tool"
+export GIT CC
+
+printf '%s\n%s\n' ./wrappers/git-sign.sh ./wrappers/cc.sh >> "$ALLOWLIST"
+
+run_test "Git wrapper signs a commit" "ran: [commit] [-S] [-m] [from the guest]" "" \
+    "$LOCAL_HOST_PROXY" ./wrappers/git-sign.sh commit -S -m "from the guest"
+run_test_exit "Git wrapper refuses a -c before the subcommand" 2 \
+    "unsupported subcommand: -c" "" \
+    "$LOCAL_HOST_PROXY" ./wrappers/git-sign.sh -c core.pager=sh commit -S
+run_test_exit "Git wrapper refuses another repository" 2 \
+    "commit: unsupported argument: --git-dir=/tmp" "" \
+    "$LOCAL_HOST_PROXY" ./wrappers/git-sign.sh commit -S --git-dir=/tmp
+# The plugin and the response file both end in .c, which is what a source-file
+# arm placed ahead of them would have accepted.
+run_test_exit "Compiler wrapper refuses a plugin" 2 \
+    "unsupported option: -fplugin=evil.c" "" \
+    "$LOCAL_HOST_PROXY" ./wrappers/cc.sh -fplugin=evil.c main.c
+run_test_exit "Compiler wrapper refuses a response file" 2 \
+    "unsupported option: @flags.c" "" \
+    "$LOCAL_HOST_PROXY" ./wrappers/cc.sh @flags.c main.c
+run_test_exit "Compiler wrapper keeps its output in the workspace" 2 \
+    "path outside the workspace: /tmp/out" "" \
+    "$LOCAL_HOST_PROXY" ./wrappers/cc.sh -o /tmp/out main.c
 
 # Scenario 29: host-proxy's own failures
 run_test_exit "Proxy usage error exits 125" 125 "Usage:" "" "$LOCAL_HOST_PROXY"

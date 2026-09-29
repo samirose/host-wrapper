@@ -36,7 +36,7 @@ done
 # Select by first line only. A plain `grep -l` would also match the /bin/sh
 # heredocs embedded in the bash test scripts.
 sh_files=""
-for f in ./*.sh ./examples/*.sh ./share/*.sh; do
+for f in ./*.sh ./examples/*.sh ./examples/wrappers/*.sh ./share/*.sh; do
     [ -f "$f" ] || continue
     [ "$(head -n 1 "$f")" = "#!/bin/sh" ] || continue
     sh_files="$sh_files $f"

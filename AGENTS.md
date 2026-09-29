@@ -65,9 +65,10 @@ edit the generator that writes it.
 ### Tier 2 — host runtime: POSIX shell language
 
 `setup.sh`, `host-connect-setup.sh`, `examples/setup-container.sh`,
-`examples/setup-container-machine.sh`.
+`examples/setup-container-machine.sh`, `examples/wrappers/*.sh`.
 
-Users run these on their own host to install and provision. Keep the shell
+Users run these on their own host: the first four to install and provision, the
+wrappers whenever a guest asks for the tool they stand in front of. Keep the shell
 *language* strictly POSIX so they behave identically under dash, ash and bash.
 Widely available utilities may be assumed, but prefer POSIX-specified options
 where choosing them costs nothing.
@@ -130,7 +131,7 @@ alone lets that through and only the grep catches it.
 Parse every `sh` script, and the generated guest script too. Select by shebang
 here as well, so the set does not go stale as scripts are added:
 
-    for f in *.sh examples/*.sh share/*.sh; do
+    for f in *.sh examples/*.sh examples/wrappers/*.sh share/*.sh; do
         [ "$(head -n 1 "$f")" = "#!/bin/sh" ] || continue
         dash -n "$f" || echo "FAIL $f"
     done
@@ -151,7 +152,7 @@ that a path such as `~/.local/state` is not a violation, and `[[` is matched
 only where a character class does not follow, so that `[[:space:]]` is not one
 either:
 
-    for f in *.sh examples/*.sh share/*.sh; do
+    for f in *.sh examples/*.sh examples/wrappers/*.sh share/*.sh; do
         [ "$(head -n 1 "$f")" = "#!/bin/sh" ] || continue
         grep -nE '\[\[[^:]|(^|[;&|(])[[:space:]]*(local|source)[[:space:]]|<<<|\becho +-[neE]|\+=|pipefail|\bfunction +[A-Za-z_]+ *\(|\$\{[A-Za-z_][A-Za-z0-9_]*(:[0-9]|/|\^|,)' "$f"
     done
@@ -162,7 +163,9 @@ expected hits.
 
 A clean tree produces no output. Both globs reach into `share`, which is where
 the tier 1 connection script lives; leave it out and the file that matters most
-drops silently out of coverage.
+drops silently out of coverage. They reach into `examples/wrappers` for the same
+reason: those run on a user's host, in front of a tool the allowlist does not
+name.
 
 ## Documentation
 
