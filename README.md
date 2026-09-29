@@ -22,6 +22,7 @@ A lightweight command-execution gateway designed to bridge isolated development 
 - [Multi-Project Architecture](#multi-project-architecture)
 - [Security Design](#security-design)
   - [Key Security Features](#key-security-features)
+  - [What the Allowlist Does Not Bound](#what-the-allowlist-does-not-bound)
   - [SECURITY DISCLAIMER](#security-disclaimer)
 - [Installation and Usage](#installation-and-usage)
   - [Prerequisites](#prerequisites)
@@ -160,6 +161,24 @@ There is a test script that test behaviour and key security features. The host-s
    - Arguments are written with control bytes escaped as `\xNN`: one attempt is one line, and a request cannot forge an entry of its own.
    - A log the wrapper cannot open, or cannot write the entry to, stops the request before the command runs. An entry is written before the command, so an unrecorded execution is one that has not happened.
 6. **Pinned Host Identity**: The guest verifies the host's SSH host key against a `known_hosts` file written at provisioning time, filed under the fixed alias `host-wrapper` rather than under an address. Because verification does not depend on the address, the connection runs with `StrictHostKeyChecking=yes` even though the container gateway address varies between systems. Without the alias, an address that moves would either fail verification or force host key checking to be turned off, leaving the guest willing to hand its key to whatever answers at the old address.
+
+### What the Allowlist Does Not Bound
+
+The allowlist bounds which file runs. It does not bound what that file does with the arguments it is given, and for a tool that runs other programs on request those are the same thing. Allowlisting such a tool grants everything it can be asked to run:
+
+```text
+git -c core.pager=sh log                # runs sh
+git -c alias.x='!sh' x                  # runs sh
+git --exec-path=/tmp/evil status        # runs /tmp/evil/git-status
+git -c core.hooksPath=/tmp/evil commit  # runs /tmp/evil/pre-commit
+cc -fplugin=/tmp/evil.so x.c            # loads /tmp/evil.so into the compiler
+cc -B/tmp/evil x.c                      # takes as and ld from /tmp/evil
+cc @/tmp/args x.c                       # takes its flags from a guest-written file
+```
+
+The same holds for `sh`, `bash`, `env`, `find`, `awk`, `perl`, `python`, `make`, `ssh` and every editor: each takes a command, a script or a plugin path as an argument. Allowlisting one of them is allowlisting `/bin/sh`.
+
+**Allowlist a wrapper script you write, never the tool.** A wrapper accepts the one shape of invocation the guest needs and refuses everything else. That is where argument validation belongs, because only the wrapper knows which arguments are legitimate for its job.
 
 ### SECURITY DISCLAIMER
 I (the author) am an experienced software developer, but not a professional security expert. I have attempted to make this tool stand up to its security claims, but all risks associated with its use—particularly the risk of exposing the host operating system via allowlist misconfiguration—rest entirely with the user.
@@ -339,7 +358,7 @@ kernel, the flake's devShell for the toolchain, so the versions come from
 host-wrapper deliberately omits several features to enforce a strict boundary:
 - **No Port Forwarding (no-port-forwarding)**: Guest containers cannot open socket tunnels or map network ports back to the host.
 - **No X11 Forwarding (no-X11-forwarding)**: Prevents guest GUI access or graphical screen eavesdropping.
-- **No Command Argument Validation**: The wrapper validates the base command path but does not parse or validate the arguments passed to it. If fine-grained argument validation is required, users must configure a custom wrapper script on the host and place that script in the allowlist instead.
+- **No Command Argument Validation**: The wrapper validates the base command path and does not parse the arguments. [What the Allowlist Does Not Bound](#what-the-allowlist-does-not-bound) covers what that means for the tool you allowlist, and what to allowlist instead.
 
 ---
 

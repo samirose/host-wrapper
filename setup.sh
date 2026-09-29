@@ -30,6 +30,9 @@ if [ ! -f "$ALLOWLIST_FILE" ]; then
 #   where commands run: /usr/bin/uname or ./build.sh. A bare name is refused,
 #   because nothing is looked up on PATH.
 # - Use +stdin option to allow the command to receive standard input from the proxy.
+# - Allowlist a wrapper script you write, never a tool that runs other programs
+#   on request: git, make, a compiler and every shell reach arbitrary execution
+#   through their own arguments.
 /usr/bin/uname
 /usr/bin/printf
 /usr/bin/wc +stdin
