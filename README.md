@@ -147,6 +147,7 @@ There is a test script that test behaviour and key security features. The host-s
    - A command is named either absolutely, or relative to the allowlist directory, which is where it runs: `/usr/bin/uname` or `./build.sh`. A name that is neither — a bare `uname`, or anything with a `..` component — is refused when the allowlist is read, before any request is served.
    - Entry and request are both resolved against that directory and then compared, so the string compared is the file executed. Nothing is looked up on `PATH`: an allowlist naming `/usr/bin/uname` permits `/usr/bin/uname`, and not `uname`.
    - Standard input redirection from proxy to host is blocked by default for all allowed commands unless explicitly overridden in the allowlist using the `+stdin` option.
+   - An option the wrapper does not recognise is refused when the allowlist is read, so a misspelled `+stdin` is a diagnostic rather than an entry that silently grants nothing.
 4. **Resilient Shell/Injection Prevention**: The wrapper bypasses the shell completely by invoking processes directly using `execv()`. There is no shell evaluation of arguments, preventing command-injection attacks.
 5. **Audit Logging**: Every attempt, `ALLOWED` or `DENIED`, is recorded on the host:
 

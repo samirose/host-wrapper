@@ -468,6 +468,18 @@ run_test_exit "Unresolvable allowlist entry refused" 125 \
     "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
     "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$UNRESOLVABLE_ALLOWLIST"
 
+# An option the wrapper does not know would otherwise be read as no option at
+# all, so a misspelled +stdin would silently deny the stdin it asks for.
+UNKNOWN_OPTION_ALLOWLIST="./unknown_option_allowlist"
+cat <<EOF > "$UNKNOWN_OPTION_ALLOWLIST"
+$UNAME_BIN
+$WC_BIN +sdtin
+EOF
+run_test_exit "Unknown allowlist option refused" 125 \
+    "Error: $UNKNOWN_OPTION_ALLOWLIST:2: unknown option '+sdtin'" \
+    "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$UNKNOWN_OPTION_ALLOWLIST"
+
 # Scenario 28: The audit trail
 # A denial is as accountable as a run, so both outcomes are asserted, and on
 # the entries these two requests added rather than on the file existing.

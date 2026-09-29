@@ -433,9 +433,15 @@ typedef struct {
 /**
  * Reduces one allowlist line, in place, to the command it names, and reports
  * the options set on it. Returns NULL for a blank or comment-only line.
+ *
+ * *bad_option is the first token that is not an option this wrapper knows, and
+ * points into line. An entry carrying one asks for something the wrapper
+ * cannot honour, so both callers refuse the entry rather than reading it as the
+ * command alone.
  */
-char* allowlist_entry(char *line, int *has_stdin) {
+char* allowlist_entry(char *line, int *has_stdin, const char **bad_option) {
     *has_stdin = 0;
+    *bad_option = NULL;
 
     // Strip newline
     line[strcspn(line, "\r\n")] = 0;
@@ -468,6 +474,8 @@ char* allowlist_entry(char *line, int *has_stdin) {
     while ((token = strtok_r(NULL, " \t\r\n", &saveptr)) != NULL) {
         if (strcmp(token, "+stdin") == 0) {
             *has_stdin = 1;
+        } else if (!*bad_option) {
+            *bad_option = token;
         }
     }
     return cmd_token;
@@ -487,8 +495,9 @@ AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) 
 
     while ((linelen = getline(&line, &linecap, fp)) > 0) {
         int line_has_stdin;
-        char *cmd_token = allowlist_entry(line, &line_has_stdin);
-        if (!cmd_token) continue;
+        const char *bad_option;
+        char *cmd_token = allowlist_entry(line, &line_has_stdin, &bad_option);
+        if (!cmd_token || bad_option) continue;
 
         // Resolved here rather than taken on trust from the startup pass: an
         // entry that does not resolve cannot match, whatever that pass saw.
@@ -511,8 +520,9 @@ AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) 
 }
 
 /**
- * Reports every allowlist entry that names no single file, so the wrapper can
- * refuse to serve a request against a list it cannot enforce. Leaves the
+ * Reports every allowlist entry the wrapper cannot enforce as written — one
+ * naming no single file, or setting an option this wrapper does not know — so
+ * that it can refuse to serve a request against such a list. Leaves the
  * stream rewound for the lookup. Returns 0 when every entry is usable.
  *
  * Reading the list twice is not a check-then-use window. The lookup reads the
@@ -530,9 +540,16 @@ int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
 
     while ((linelen = getline(&line, &linecap, fp)) > 0) {
         int line_has_stdin;
+        const char *bad_option;
         lineno++;
-        char *cmd_token = allowlist_entry(line, &line_has_stdin);
+        char *cmd_token = allowlist_entry(line, &line_has_stdin, &bad_option);
         if (!cmd_token) continue;
+
+        if (bad_option) {
+            log_error("Error: %s:%d: unknown option '%s'\n", path, lineno,
+                      bad_option);
+            bad = 1;
+        }
 
         const char *why;
         char *resolved = resolve_command(cmd_token, workspace, &why);
