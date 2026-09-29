@@ -64,6 +64,33 @@ the host.
 
 ---
 
+## Command Wrappers
+
+`wrappers/` holds the scripts to allowlist in place of a tool that runs other
+programs on request. Both are examples to narrow, not drop-in configuration.
+
+- **wrappers/git-sign.sh**: accepts `commit -S [--amend] [-m <message>]` and
+  `tag -s -m <message> <tagname>`, so the signing key stays on the host and the
+  guest never holds a copy. Every other invocation is refused, `git -c` and
+  `--exec-path` among them.
+- **wrappers/cc.sh**: accepts a fixed flag vocabulary — `-c`, `-o`, the warning
+  and optimization flags, `-std=`, `-I`, `-D`, `-l` — and confines every path to
+  the workspace. `-fplugin=`, `-B` and `@file` are refused by not being in the
+  list.
+
+Install a wrapper outside the directory holding the allowlist. That directory is
+where allowlisted commands run, so a command able to write a file there could
+otherwise rewrite the wrapper standing in front of the tool. Name the wrapper in
+the allowlist and edit `GIT` or `CC` in it to the tool on your host. With the
+allowlist in the default `~/.config/host-wrapper/`, that is anywhere but there:
+
+    /Users/you/.local/share/host-wrapper/git-sign.sh
+
+[What the Allowlist Does Not Bound](../README.md#what-the-allowlist-does-not-bound)
+explains what makes these necessary.
+
+---
+
 ## Reaching the Host
 
 Neither example writes a host address into its connection script. The gateway

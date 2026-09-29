@@ -180,6 +180,8 @@ The same holds for `sh`, `bash`, `env`, `find`, `awk`, `perl`, `python`, `make`,
 
 **Allowlist a wrapper script you write, never the tool.** A wrapper accepts the one shape of invocation the guest needs and refuses everything else. That is where argument validation belongs, because only the wrapper knows which arguments are legitimate for its job.
 
+`examples/wrappers/` carries one for each case above: `git-sign.sh` accepts `commit -S` and `tag -s`, and `cc.sh` a fixed flag vocabulary with every path confined to the workspace. Copy one and narrow it to the invocation your guest actually needs.
+
 ### SECURITY DISCLAIMER
 I (the author) am an experienced software developer, but not a professional security expert. I have attempted to make this tool stand up to its security claims, but all risks associated with its use—particularly the risk of exposing the host operating system via allowlist misconfiguration—rest entirely with the user.
 
