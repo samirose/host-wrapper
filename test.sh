@@ -480,6 +480,23 @@ run_test_exit "Unknown allowlist option refused" 125 \
     "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
     "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$UNKNOWN_OPTION_ALLOWLIST"
 
+# Scenario 27.5: --check reports on a list without serving anything
+# The same two refusals as above, reached with no request on stdin and no audit
+# log named: a misconfigured list is answered for at the host, before a guest
+# depends on it.
+ENTRY_COUNT=$(grep -cE '^[[:space:]]*[^[:space:]#]' "$ALLOWLIST")
+run_test "Check accepts a usable allowlist" \
+    "$ALLOWLIST: $ENTRY_COUNT entries, no problems found" "" \
+    "$LOCAL_HOST_WRAPPER" --check "$ALLOWLIST"
+run_test_exit "Check refuses an unresolvable entry" 125 \
+    "Error: $UNRESOLVABLE_ALLOWLIST:2: 'wc' has no directory" "" \
+    "$LOCAL_HOST_WRAPPER" --check "$UNRESOLVABLE_ALLOWLIST"
+run_test_exit "Check refuses an unknown option" 125 \
+    "Error: $UNKNOWN_OPTION_ALLOWLIST:2: unknown option '+sdtin'" "" \
+    "$LOCAL_HOST_WRAPPER" --check "$UNKNOWN_OPTION_ALLOWLIST"
+run_test_exit "Check without a list names the usage" 125 "--check <allowlist_path>" "" \
+    "$LOCAL_HOST_WRAPPER" --check
+
 # Scenario 28: The audit trail
 # A denial is as accountable as a run, so both outcomes are asserted, and on
 # the entries these two requests added rather than on the file existing.

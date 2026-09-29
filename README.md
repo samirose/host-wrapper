@@ -247,6 +247,14 @@ This script will:
 command="/Users/YOUR_USER/.ssh/host-wrapper -n host-wrapper /Users/YOUR_USER/.config/host-wrapper/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAAC3... host-wrapper.key
 ```
 
+Check an allowlist after editing it:
+
+```bash
+host-wrapper --check "$HOME/.config/host-wrapper/allowlist"
+```
+
+`--check` applies the same validation a served request does, and names the file and line of every entry the wrapper would refuse to start on. It serves nothing: no request is read and no audit log is opened. It exits 0 on a list the wrapper will accept and 125 on one it will not.
+
 ### 3. Client-Side Integration
 Because host-proxy runs inside the guest container, it must be compiled for the target container's operating system and processor architecture, as compiling directly on the host OS produces an incompatible executable.
 

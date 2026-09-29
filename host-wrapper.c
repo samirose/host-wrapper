@@ -523,7 +523,8 @@ AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) 
  * Reports every allowlist entry the wrapper cannot enforce as written — one
  * naming no single file, or setting an option this wrapper does not know — so
  * that it can refuse to serve a request against such a list. Leaves the
- * stream rewound for the lookup. Returns 0 when every entry is usable.
+ * stream rewound for the lookup. Returns the number of entries read, or -1 if
+ * any of them is unusable.
  *
  * Reading the list twice is not a check-then-use window. The lookup reads the
  * same open stream, so the file cannot be swapped underneath it, and it
@@ -536,6 +537,7 @@ int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
     size_t linecap = 0;
     ssize_t linelen;
     int lineno = 0;
+    int entries = 0;
     int bad = 0;
 
     while ((linelen = getline(&line, &linecap, fp)) > 0) {
@@ -544,6 +546,7 @@ int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
         lineno++;
         char *cmd_token = allowlist_entry(line, &line_has_stdin, &bad_option);
         if (!cmd_token) continue;
+        entries++;
 
         if (bad_option) {
             log_error("Error: %s:%d: unknown option '%s'\n", path, lineno,
@@ -564,7 +567,7 @@ int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
 
     free(line);
     rewind(fp);
-    return bad ? -1 : 0;
+    return bad ? -1 : entries;
 }
 
 /**
@@ -918,15 +921,55 @@ cleanup:
 }
 
 #ifndef FUZZING
+/**
+ * Reads an allowlist and reports on it, serving nothing. The entries go through
+ * the validation a served run applies, so a clean exit here is a list the
+ * wrapper will start on and 125 is one it will refuse.
+ */
+int check_allowlist(const char *path) {
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        log_error("fopen allowlist: %s\n", strerror(errno));
+        return EXIT_WRAPPER_ERROR;
+    }
+
+    char *workspace = workspace_dir(path);
+    if (!workspace) {
+        fclose(fp);
+        return EXIT_WRAPPER_ERROR;
+    }
+
+    int entries = validate_allowlist(fp, path, workspace);
+    free(workspace);
+    fclose(fp);
+    if (entries < 0) return EXIT_WRAPPER_ERROR;
+
+    printf("%s: %d entr%s, no problems found\n", path, entries,
+           entries == 1 ? "y" : "ies");
+    return 0;
+}
+
 void usage(const char *program) {
-    fprintf(stderr, "Usage: %s [-l audit_log_path] [-n label] <allowlist_path>\n",
-            program);
+    fprintf(stderr, "Usage: %s [-l audit_log_path] [-n label] <allowlist_path>\n"
+                    "       %s --check <allowlist_path>\n",
+            program, program);
 }
 
 int main(int argc, char *argv[]) {
     const char *log_path = NULL;
     const char *label = "-";
     int opt;
+
+    // A mode rather than an option: it serves no request, so it takes none of
+    // the settings serving one needs. Matched here because POSIX getopt has no
+    // long options.
+    if (argc > 1 && strcmp(argv[1], "--check") == 0) {
+        if (argc != 3) {
+            usage(argv[0]);
+            return EXIT_WRAPPER_ERROR;
+        }
+        return check_allowlist(argv[2]);
+    }
 
     // Options come from the forced command in authorized_keys, so they are the
     // host's settings for this key and never the guest's.
@@ -956,7 +999,7 @@ int main(int argc, char *argv[]) {
         return EXIT_WRAPPER_ERROR;
     }
 
-    if (validate_allowlist(fp, allowlist_path, workspace) != 0) {
+    if (validate_allowlist(fp, allowlist_path, workspace) < 0) {
         free(workspace);
         fclose(fp);
         return EXIT_WRAPPER_ERROR;
