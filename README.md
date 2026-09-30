@@ -201,6 +201,8 @@ Match Address 192.168.64.0/24,192.168.65.0/24
 - Put the host-wrapper lines in that file instead of `authorized_keys`, and nothing else. From a guest, only they authenticate.
 - `sudo sshd -T -C user=YOUR_USER,host=guest,addr=192.168.64.3` prints the settings a guest connection gets.
 
+`restrict` turns off `~/.ssh/rc` but not `/etc/ssh/sshrc`, which sshd runs in its place on every login, a guest's included, whenever it exists. No `authorized_keys` or `sshd_config` option disables it. It is normally absent; keep it that way.
+
 ### SECURITY DISCLAIMER
 I (the author) am an experienced software developer, but not a professional security expert. I have attempted to make this tool stand up to its security claims, but all risks associated with its use—particularly the risk of exposing the host operating system via allowlist misconfiguration—rest entirely with the user.
 
