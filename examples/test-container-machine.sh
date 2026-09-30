@@ -28,6 +28,15 @@ echo "=================================================="
 echo "Running End-to-End Guest-to-Host Integration Tests"
 echo "=================================================="
 
+# container machine run hands its arguments to the guest's /bin/sh as one
+# string, so each is single-quoted to reach host-proxy as written.
+guest_args() {
+    local arg
+    for arg in "$@"; do
+        printf "'%s' " "$(printf '%s' "$arg" | sed "s/'/'\\\\''/g")"
+    done
+}
+
 run_integration_test() {
     local name="$1"
     local expected="$2"
@@ -36,9 +45,9 @@ run_integration_test() {
 
     local actual
     if [ -n "$stdin_data" ]; then
-        actual=$(echo -n "$stdin_data" | container machine run -i -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- ./host-proxy "$@" 2>&1)
+        actual=$(echo -n "$stdin_data" | container machine run -i -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- ./host-proxy "$(guest_args "$@")" 2>&1)
     else
-        actual=$(container machine run -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- ./host-proxy "$@" 2>&1)
+        actual=$(container machine run -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- ./host-proxy "$(guest_args "$@")" 2>&1)
     fi
     local exit_code=$?
 
@@ -57,7 +66,7 @@ run_integration_test_fail() {
     shift 2
 
     local actual
-    actual=$(container machine run -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- ./host-proxy "$@" 2>&1)
+    actual=$(container machine run -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- ./host-proxy "$(guest_args "$@")" 2>&1)
     local exit_code=$?
 
     if [ $exit_code -ne 0 ] && [[ "$actual" == *"$expected_err"* ]]; then
@@ -81,7 +90,7 @@ audit_lines() {
 audit_before=$(audit_lines)
 
 run_integration_test "Retrieve Host OS (uname)" "Darwin" "" /usr/bin/uname
-run_integration_test "Space preservation (printf)" "[arg with space]" "" /usr/bin/printf "[%s]\\n" "\"arg with space\""
+run_integration_test "Space preservation (printf)" "[arg with space]" "" /usr/bin/printf '[%s]\n' 'arg with space'
 run_integration_test "Forwarding Stdin stream (wc)" "12" "hello stream" /usr/bin/wc -c
 run_integration_test_fail "Blocked command validation (id)" "not in allowlist" /usr/bin/id
 
