@@ -68,7 +68,8 @@ SSH_CONNECT_SCRIPT="$GUEST_DIR/host-proxy-ssh.sh"
 GLOBAL_WRAPPER_PATH="$HOME/.ssh/host-wrapper"
 
 ABS_ALLOWLIST_PATH="$ALLOWLIST_FILE"
-PUB_KEY_CONTENT=$(cat "${SSH_KEY_FILE}.pub")
+AUTH_LINE=$(sh "$SCRIPT_DIR/host-authorized-key.sh" -n host-wrapper \
+    "$GLOBAL_WRAPPER_PATH" "$ABS_ALLOWLIST_PATH" "${SSH_KEY_FILE}.pub") || exit 1
 
 # 5. Output instructions
 echo "--------------------------------------------------------"
@@ -81,7 +82,7 @@ echo "   chmod 755 $GLOBAL_WRAPPER_PATH"
 echo ""
 echo "2. Add the following line to your host's ~/.ssh/authorized_keys file:"
 echo ""
-echo "command=\"$GLOBAL_WRAPPER_PATH -n host-wrapper $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
+printf '%s\n' "$AUTH_LINE"
 echo ""
 echo "   Every attempt is recorded under the label given by -n, in"
 echo "   \${XDG_STATE_HOME:-\$HOME/.local/state}/host-wrapper/audit.log."
