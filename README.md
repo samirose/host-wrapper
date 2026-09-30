@@ -23,6 +23,7 @@ A lightweight command-execution gateway designed to bridge isolated development 
 - [Security Design](#security-design)
   - [Key Security Features](#key-security-features)
   - [What the Allowlist Does Not Bound](#what-the-allowlist-does-not-bound)
+  - [Host Exposure](#host-exposure)
   - [SECURITY DISCLAIMER](#security-disclaimer)
 - [Installation and Usage](#installation-and-usage)
   - [Prerequisites](#prerequisites)
@@ -181,6 +182,24 @@ The same holds for `sh`, `bash`, `env`, `find`, `awk`, `perl`, `python`, `make`,
 **Allowlist a wrapper script you write, never the tool.** A wrapper accepts the one shape of invocation the guest needs and refuses everything else. That is where argument validation belongs, because only the wrapper knows which arguments are legitimate for its job.
 
 `examples/wrappers/` carries one for each case above: `git-sign.sh` accepts `commit -S` and `tag -s`, and `cc.sh` a fixed flag vocabulary with every path confined to the workspace. Copy one and narrow it to the invocation your guest actually needs.
+
+### Host Exposure
+
+Reaching host-wrapper means running sshd on the host (*Remote Login* on macOS), and it listens on every interface, the guests' network included. The forced command confines one key: any other key in `authorized_keys`, and a password where sshd accepts one, still logs in from a guest.
+
+Confine what a guest's address can authenticate with, at the end of the host's `sshd_config`:
+
+```text
+Match Address 192.168.64.0/24,192.168.65.0/24
+    AuthenticationMethods publickey
+    PermitRootLogin no
+    AllowUsers YOUR_USER
+    AuthorizedKeysFile .ssh/authorized_keys_host_wrapper
+```
+
+- The addresses are the subnets your guests connect from. For Apple `container`, `container network list` shows them.
+- Put the host-wrapper lines in that file instead of `authorized_keys`, and nothing else. From a guest, only they authenticate.
+- `sudo sshd -T -C user=YOUR_USER,host=guest,addr=192.168.64.3` prints the settings a guest connection gets.
 
 ### SECURITY DISCLAIMER
 I (the author) am an experienced software developer, but not a professional security expert. I have attempted to make this tool stand up to its security claims, but all risks associated with its use—particularly the risk of exposing the host operating system via allowlist misconfiguration—rest entirely with the user.
