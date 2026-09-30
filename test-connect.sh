@@ -1,6 +1,7 @@
 #!/bin/sh
 
-# Test suite for host-connect-setup.sh and the connection script it generates.
+# Test suite for host-connect-setup.sh and the connection script it generates,
+# and for the authorized_keys line host-authorized-key.sh prints.
 #
 # The connection script is the only part of the system that decides *where* to
 # connect and *whether to trust* what answers, so it is exercised directly:
@@ -16,6 +17,7 @@ if [ ! -f "$GENERATOR" ]; then
     exit 1
 fi
 GENERATOR=$(cd "$(dirname "$GENERATOR")" && pwd)/$(basename "$GENERATOR")
+AUTHKEY="$(dirname "$GENERATOR")/host-authorized-key.sh"
 
 make_test_dir host-wrapper-connect
 
@@ -277,6 +279,59 @@ if [ -e "$TEST_DIR/lonely" ]; then
         "  $(ls "$TEST_DIR/lonely")"
 else
     report "A failed run leaves no partial bundle" yes
+fi
+
+# ---------------------------------------------------------------------------
+# authorized_keys line
+# ---------------------------------------------------------------------------
+
+ssh-keygen -t ed25519 -f "$TEST_DIR/client_key" -N "" -q -C "fixture.client.key"
+CLIENT_PUB="$TEST_DIR/client_key.pub"
+
+KEY_LINE=$(sh "$AUTHKEY" -n proj -l /opt/state/audit.log \
+    /opt/bin/host-wrapper /opt/proj/allowlist "$CLIENT_PUB")
+
+# Exact, so that an option granting anything back cannot slip in beside them.
+assert_equals "Options are restrict and the forced command" \
+    "${KEY_LINE%% ssh-ed25519 *}" \
+    "restrict,command=\"/opt/bin/host-wrapper -n proj -l /opt/state/audit.log /opt/proj/allowlist\""
+assert_equals "Key and comment follow unchanged" \
+    "ssh-ed25519 ${KEY_LINE#* ssh-ed25519 }" "$(cat "$CLIENT_PUB")"
+
+printf '%s\n' "$KEY_LINE" > "$TEST_DIR/authorized_keys"
+assert_equals "Line parses as an authorized_keys entry" \
+    "$(ssh-keygen -lf "$TEST_DIR/authorized_keys")" "$(ssh-keygen -lf "$CLIENT_PUB")"
+
+assert_contains "Log option is left out when not given" \
+    "$(sh "$AUTHKEY" -n proj /opt/bin/host-wrapper /opt/proj/allowlist "$CLIENT_PUB")" \
+    "command=\"/opt/bin/host-wrapper -n proj /opt/proj/allowlist\""
+
+# sshd dequotes the option, then the user's shell splits what is left, so run
+# the command the way that pair would and compare the words the wrapper gets.
+ODD_DIR="$TEST_DIR/odd \"dir\" it's"
+mkdir -p "$ODD_DIR"
+cat <<'STUB_EOF' > "$ODD_DIR/host-wrapper"
+#!/bin/sh
+printf '%s\n' "$@"
+STUB_EOF
+chmod +x "$ODD_DIR/host-wrapper"
+
+ODD_LINE=$(sh "$AUTHKEY" -n "a b" "$ODD_DIR/host-wrapper" "$ODD_DIR/allowlist" "$CLIENT_PUB")
+ODD_CMD=$(printf '%s' "$ODD_LINE" | sed 's/^restrict,command="\(.*\)" ssh-ed25519 .*/\1/; s/\\"/"/g')
+assert_equals "Paths the shell would split reach the wrapper whole" \
+    "$(sh -c "$ODD_CMD" | paste -sd '|' -)" "-n|a b|$ODD_DIR/allowlist"
+
+if sh "$AUTHKEY" /opt/bin/host-wrapper /opt/proj/allowlist "$TEST_DIR/nonexistent.pub" >/dev/null 2>&1; then
+    report "Key line refuses a missing public key" no
+else
+    report "Key line refuses a missing public key" yes
+fi
+
+# Its options would otherwise sit in front of the key beside restrict.
+if sh "$AUTHKEY" /opt/bin/host-wrapper /opt/proj/allowlist "$TEST_DIR/authorized_keys" >/dev/null 2>&1; then
+    report "Key line refuses a key that carries options" no
+else
+    report "Key line refuses a key that carries options" yes
 fi
 
 test_summary

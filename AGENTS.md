@@ -64,10 +64,11 @@ edit the generator that writes it.
 
 ### Tier 2 — host runtime: POSIX shell language
 
-`setup.sh`, `host-connect-setup.sh`, `examples/setup-container.sh`,
-`examples/setup-container-machine.sh`, `examples/wrappers/*.sh`.
+`setup.sh`, `host-connect-setup.sh`, `host-authorized-key.sh`,
+`examples/setup-container.sh`, `examples/setup-container-machine.sh`,
+`examples/wrappers/*.sh`.
 
-Users run these on their own host: the first four to install and provision, the
+Users run these on their own host: the first five to install and provision, the
 wrappers whenever a guest asks for the tool they stand in front of. Keep the shell
 *language* strictly POSIX so they behave identically under dash, ash and bash.
 Widely available utilities may be assumed, but prefer POSIX-specified options
