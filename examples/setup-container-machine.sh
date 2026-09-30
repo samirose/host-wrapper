@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Configuration for Apple Container Machine Setup
-ALLOWLIST_DIR="./examples/config"
+ALLOWLIST_DIR="examples/config"
 ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
 SSH_KEY_DIR="./examples/ssh"
 SSH_KEY_FILE="$SSH_KEY_DIR/id_ed25519_container-machine"

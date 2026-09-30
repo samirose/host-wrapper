@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Configuration for container host-proxy setup
-ALLOWLIST_DIR="./examples/config"
+ALLOWLIST_DIR="examples/config"
 ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
 CONTAINER_PROJECT_DIR="./examples/container_project"
 SSH_KEY_DIR="$CONTAINER_PROJECT_DIR/ssh"
