@@ -142,7 +142,7 @@ To guarantee terminal compliance and color support, approved host processes are 
 There is a test script that test behaviour and key security features. The host-side netstring and argument parser have been extensively fuzzed under AddressSanitizer and UndefinedBehaviorSanitizer to test for memory leaks, crashes, and out-of-bounds access.
 
 ### Key Security Features
-1. **Enforced SSH Command Context**: The client's public key in the host's `~/.ssh/authorized_keys` file is restricted using `command="/path/to/host-wrapper -n label -l /path/to/audit.log /path/to/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding`. This guarantees that even if a guest container is compromised, it can only invoke the host-wrapper via SSH.
+1. **Enforced SSH Command Context**: The client's public key in the host's `~/.ssh/authorized_keys` file is restricted using `restrict,command="/path/to/host-wrapper -n label -l /path/to/audit.log /path/to/allowlist"`. This guarantees that even if a guest container is compromised, it can only invoke the host-wrapper via SSH. `restrict` turns off forwarding, the pty, `~/.ssh/rc` and any feature a later OpenSSH adds, and the line grants nothing back. `host-authorized-key.sh` prints it.
 2. **Working Directory Mapping**: Before executing an approved host command, host-wrapper changes its working directory (`chdir`) to the directory containing the allowlist file. This serves as a convenience, allowing host commands to resolve file paths relative to workspace directory.
 3. **Strict Command Validation**:
    - A command is named either absolutely, or relative to the allowlist directory, which is where it runs: `/usr/bin/uname` or `./build.sh`. A name that is neither — a bare `uname`, or anything with a `..` component — is refused when the allowlist is read, before any request is served.
@@ -217,10 +217,10 @@ A single compiled `host-wrapper` binary on your host (e.g., placed at `~/.ssh/ho
 1. **Host-Side Key Allocation**: In your `~/.ssh/authorized_keys`, configure a separate SSH key for each container/project. Link each key to the same wrapper binary, but specify a different, isolated `allowlist` file path:
    ```text
    # Project A (limited to Project A allowlist)
-   command="~/.ssh/host-wrapper -n project-a ~/ProjectA/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 KEY_A
+   restrict,command="~/.ssh/host-wrapper -n project-a ~/ProjectA/allowlist" ssh-ed25519 KEY_A
 
    # Project B (limited to Project B allowlist)
-   command="~/.ssh/host-wrapper -n project-b ~/ProjectB/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 KEY_B
+   restrict,command="~/.ssh/host-wrapper -n project-b ~/ProjectB/allowlist" ssh-ed25519 KEY_B
    ```
 2. **Context Isolation**: When executing commands, `host-wrapper` automatically changes directory to the folder containing the specific allowlist file. This allows scripts in `Project A` to resolve file paths relative to `~/ProjectA/` with absolute path safety.
 3. **Per-Key Attribution**: `-n` names the key in every audit entry it produces, so one shared log tells the projects apart. `-l` gives a project its own log instead.
@@ -235,7 +235,7 @@ Before installing, ensure that your environments meet the following requirements
 
 #### Host System
 - **C Compiler & Build Tools**: A C compiler (such as `gcc` or `clang`) and `make` to compile the server-side binary.
-- **SSH Daemon**: A running SSH server (`sshd`) configured to allow key-based authentication.
+- **SSH Daemon**: A running SSH server (`sshd`) configured to allow key-based authentication: OpenSSH 7.2 or later, which introduced `restrict`.
 - **PTY Support**: Standard POSIX pseudo-terminal support (natively supported on macOS/Darwin and standard Linux distributions).
 
 #### Guest System (Container / VM)
@@ -265,7 +265,7 @@ This script will:
 4. Print the exact line to paste into your host's `$HOME/.ssh/authorized_keys` file, for example:
 
 ```text
-command="/Users/YOUR_USER/.ssh/host-wrapper -n host-wrapper /Users/YOUR_USER/.config/host-wrapper/allowlist",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAAC3... host-wrapper.key
+restrict,command="/Users/YOUR_USER/.ssh/host-wrapper -n host-wrapper /Users/YOUR_USER/.config/host-wrapper/allowlist" ssh-ed25519 AAAAC3... host-wrapper.key
 ```
 
 Check an allowlist after editing it:
@@ -358,8 +358,8 @@ kernel, the flake's devShell for the toolchain, so the versions come from
 ## Omitted Features and Intended Constraints
 
 host-wrapper deliberately omits several features to enforce a strict boundary:
-- **No Port Forwarding (no-port-forwarding)**: Guest containers cannot open socket tunnels or map network ports back to the host.
-- **No X11 Forwarding (no-X11-forwarding)**: Prevents guest GUI access or graphical screen eavesdropping.
+- **No Port Forwarding**: Guest containers cannot open socket tunnels or map network ports back to the host.
+- **No X11 Forwarding**: Prevents guest GUI access or graphical screen eavesdropping.
 - **No Command Argument Validation**: The wrapper validates the base command path and does not parse the arguments. [What the Allowlist Does Not Bound](#what-the-allowlist-does-not-bound) covers what that means for the tool you allowlist, and what to allowlist instead.
 
 ---
