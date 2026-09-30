@@ -56,6 +56,11 @@ if [ ! -f "$HOME/.ssh/authorized_keys" ]; then
     chmod 600 "$HOME/.ssh/authorized_keys"
 fi
 
+# A last line with no newline would fuse with the line appended after it.
+if [ -s "$HOME/.ssh/authorized_keys" ] && [ -n "$(tail -c 1 "$HOME/.ssh/authorized_keys")" ]; then
+    printf '\n' >> "$HOME/.ssh/authorized_keys"
+fi
+
 if grep -q "example-container-machine.key" "$HOME/.ssh/authorized_keys"; then
     if grep -Fq "$AUTH_LINE" "$HOME/.ssh/authorized_keys"; then
         echo "[+] Restricted key with correct path already configured in authorized_keys."
