@@ -45,10 +45,10 @@ chmod 755 "$GLOBAL_WRAPPER_PATH"
 
 # 3. Safely update host authorized_keys with the restricted public key
 echo "[*] Setting up host-wrapper to host SSH authorized_keys..."
-PUB_KEY_CONTENT=$(cat "${SSH_KEY_FILE}.pub")
 ABS_ALLOWLIST_PATH="$PROJECT_DIR/$ALLOWLIST_FILE"
 AUDIT_LOG_PATH="$PROJECT_DIR/examples/audit.log"
-AUTH_LINE="command=\"$GLOBAL_WRAPPER_PATH -n $CONTAINER_MACHINE_NAME -l $AUDIT_LOG_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
+AUTH_LINE=$(sh ./host-authorized-key.sh -n "$CONTAINER_MACHINE_NAME" -l "$AUDIT_LOG_PATH" \
+    "$GLOBAL_WRAPPER_PATH" "$ABS_ALLOWLIST_PATH" "${SSH_KEY_FILE}.pub") || exit 1
 
 mkdir -p "$HOME/.ssh"
 if [ ! -f "$HOME/.ssh/authorized_keys" ]; then
@@ -67,13 +67,13 @@ if grep -q "example-container-machine.key" "$HOME/.ssh/authorized_keys"; then
     else
         echo "[*] Project path or key configuration changed. Updating authorized_keys..."
         grep -v "example-container-machine.key" "$HOME/.ssh/authorized_keys" > "$HOME/.ssh/authorized_keys.tmp"
-        echo "$AUTH_LINE" >> "$HOME/.ssh/authorized_keys.tmp"
+        printf '%s\n' "$AUTH_LINE" >> "$HOME/.ssh/authorized_keys.tmp"
         mv "$HOME/.ssh/authorized_keys.tmp" "$HOME/.ssh/authorized_keys"
         chmod 600 "$HOME/.ssh/authorized_keys"
     fi
 else
     echo "[*] Appending the restricted key to ~/.ssh/authorized_keys..."
-    echo "$AUTH_LINE" >> "$HOME/.ssh/authorized_keys"
+    printf '%s\n' "$AUTH_LINE" >> "$HOME/.ssh/authorized_keys"
 fi
 
 # 4. Prepare local guest share directory

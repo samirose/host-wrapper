@@ -55,7 +55,8 @@ ABS_ALLOWLIST_PATH="$(pwd)/$ALLOWLIST_FILE"
 # Beside the workspace rather than in it: the allowlist directory is where the
 # audited commands run.
 AUDIT_LOG_PATH="$(pwd)/examples/audit.log"
-PUB_KEY_CONTENT=$(cat "${SSH_KEY_FILE}.pub")
+AUTH_LINE=$(sh ./host-authorized-key.sh -n "example-container" -l "$AUDIT_LOG_PATH" \
+    "$GLOBAL_WRAPPER_PATH" "$ABS_ALLOWLIST_PATH" "${SSH_KEY_FILE}.pub") || exit 1
 
 echo "--------------------------------------------------------"
 echo "Host and Project Configuration Complete."
@@ -67,7 +68,7 @@ echo "   chmod 755 $GLOBAL_WRAPPER_PATH"
 echo ""
 echo "2. Add the restricted public key to your host's ~/.ssh/authorized_keys file:"
 echo ""
-echo "command=\"$GLOBAL_WRAPPER_PATH -n example-container -l $AUDIT_LOG_PATH $ABS_ALLOWLIST_PATH\",no-pty,no-port-forwarding,no-X11-forwarding,no-agent-forwarding $PUB_KEY_CONTENT"
+printf '%s\n' "$AUTH_LINE"
 echo ""
 echo "3. Run in the Nix container environment:"
 echo "   bash examples/run-container.sh"

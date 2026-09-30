@@ -334,4 +334,9 @@ else
     report "Key line refuses a key that carries options" yes
 fi
 
+# So that what is asserted above is what every setup script writes.
+ROOT=$(dirname "$GENERATOR")
+HAND_WRITTEN=$(grep -lE 'command=\\"|no-pty' "$ROOT/setup.sh" "$ROOT"/examples/*.sh)
+assert_equals "No setup script writes a key line by hand" "$HAND_WRITTEN" ""
+
 test_summary
