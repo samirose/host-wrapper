@@ -77,7 +77,7 @@ where choosing them costs nothing.
 ### Tier 3 — development and test: convenience
 
 `test.sh`, `test-connect.sh`, `examples/run-container.sh`,
-`examples/run-container-machine.sh`.
+`examples/run-container-machine.sh`, `examples/spike-socket.sh`.
 
 These only ever run on a developer's machine, so readability beats portability.
 Non-POSIX utilities are fine: `test-connect.sh` deliberately uses `mktemp` and
