@@ -205,6 +205,9 @@ a whole commit in their head, and a bisect should be able to land on one.
 
 - **One logical change per commit.** A new mechanism, the call sites migrated
   onto it, and the documentation describing it are three changes, not one.
+- **Make them one at a time.** Write one commit, then stop for review before
+  starting the next. Feedback on one commit shapes the next, so do not
+  prepare a series ahead of it.
 - **Every commit stands on its own.** It builds, its tests pass, and the tree it
   leaves behind works. A commit that only makes sense once a later one lands is
   not a commit, it is half of one.
