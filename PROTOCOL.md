@@ -8,7 +8,8 @@ session's.
 ## Request
 
 A request is a sequence of netstrings (`<length>:<bytes>,`, the length in
-decimal), followed by the target's standard input as raw bytes:
+decimal without leading zeros), followed by the target's standard input as raw
+bytes:
 
 ```text
 3:HW1,          protocol magic and version

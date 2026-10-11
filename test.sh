@@ -215,6 +215,10 @@ run_test_exit "Header too long limit" 125 "Error: Argument too long (999999 byte
 # Scenario 8: Header digits exceed buffer (more than 15 digits)
 run_test_exit "Header digits overflow" 125 "Error: Netstring length too long" "12345678901234567890:toobig," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
+# Scenario 8.0.1: A length has one spelling; "03:HW1," is not "3:HW1,". An
+# empty netstring is still "0:,".
+run_test_exit "Leading zero in length" 125 "Error: Netstring length has a leading zero" "03:HW1,0:,1:1,${#UNAME_BIN}:$UNAME_BIN," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+
 # Scenario 8.1: The header is versioned and its options are keyed. Anything the
 # wrapper does not understand refuses the request rather than being skipped.
 UNAME_ARGV="1:1,${#UNAME_BIN}:$UNAME_BIN,"

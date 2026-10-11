@@ -324,6 +324,11 @@ char* parse_netstring(ParserContext *ctx, size_t *out_len) {
         return NULL;
     }
 
+    if (i > 1 && len_buf[0] == '0') {
+        log_error("Error: Netstring length has a leading zero\n");
+        return NULL;
+    }
+
     char *endptr;
     errno = 0;
     unsigned long long parsed_len = strtoull(len_buf, &endptr, 10);
