@@ -190,8 +190,12 @@ reader arriving today should not have to parse what it used to do.
 
 ### Comments
 
-The rules above hold for comments in code as well, and one more with them:
+The rules above hold for comments in code as well, and more with them:
 
+- **Default to no comment.** Names, structure and error messages carry the
+  meaning. Comment only code that is unusual, or complex for a reason the code
+  cannot show. A comment saying what an error message beside it already says
+  is the one to cut.
 - **Do not explain the tooling.** Whoever reads this repository knows what a
   lock file pins, what `set -e` does, and what a Nix devShell is. Comment what
   they cannot derive: why this list, why this order, what breaks without it.
