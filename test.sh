@@ -45,6 +45,9 @@ AUDIT_LOG="./audit.log"
 # Use localized paths within the isolated directory
 LOCAL_HOST_PROXY="./host-proxy"
 LOCAL_HOST_WRAPPER="./host-wrapper"
+# What host-proxy sends ahead of argv without a terminal: the protocol magic,
+# the options, and the empty netstring that ends them.
+HEADER="3:HW1,7:cols=80,7:rows=24,0:,"
 
 # The allowlist matches verbatim, so a scenario has to name the binary the
 # wrapper will exec, and that path differs per system.
@@ -212,6 +215,22 @@ run_test_exit "Header too long limit" 125 "Error: Argument too long (999999 byte
 # Scenario 8: Header digits exceed buffer (more than 15 digits)
 run_test_exit "Header digits overflow" 125 "Error: Netstring length too long" "12345678901234567890:toobig," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
+# Scenario 8.1: The header is versioned and its options are keyed. Anything the
+# wrapper does not understand refuses the request rather than being skipped.
+UNAME_ARGV="1:1,${#UNAME_BIN}:$UNAME_BIN,"
+run_test_exit "Unversioned header" 125 "Error: protocol version mismatch: rebuild host-proxy" "5:80,24,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Unknown header option" 125 "Error: Unknown header option 'term'" "3:HW1,10:term=xterm,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Repeated header option" 125 "Error: Repeated header option 'cols'" "3:HW1,7:cols=80,7:cols=90,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Invalid header option" 125 "Error: Invalid header option 'cols=0'" "3:HW1,6:cols=0,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+# Without the terminator, argc is read as an option.
+run_test_exit "Missing option terminator" 125 "Error: Malformed header option" "3:HW1,7:cols=80,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test "Header without options" "$UNAME_OUT" "3:HW1,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+
+# The runners pass stdin through printf '%s', which cannot carry a NUL.
+printf "3:HW1,8:cols=8\\0000,0:,%s" "$UNAME_ARGV" |
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST" >"$CAPTURE_OUT" 2>"$CAPTURE_ERR"
+assert_equals "NUL inside a header option" "$?:$(cat "$CAPTURE_ERR")" "125:Error: Malformed header option"
+
 # Scenario 9: Verify no-hang when host command finishes but stdin is still open
 FIFO="./test_fifo"
 mkfifo "$FIFO"
@@ -266,15 +285,15 @@ done
 run_test_exit "SIGPIPE resilience" 125 "" "" "$LOCAL_HOST_PROXY" "$LS_BIN" $ARGS
 
 # Scenario 11: Invalid argc (0 or negative)
-run_test_exit "Invalid argc (0)" 125 "Error: Invalid target argc (0)" "5:80,24,1:0," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Invalid argc (0)" 125 "Error: Invalid target argc (0)" "${HEADER}1:0," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 12: argc too large
-run_test_exit "Argc too large" 125 "Error: Invalid target argc (1025)" "5:80,24,4:1025," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Argc too large" 125 "Error: Invalid target argc (1025)" "${HEADER}4:1025," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 13: Partial match in allowlist (prefix/suffix)
 # A prefix of an allowlisted path must not match it.
 UNAME_PREFIX=${UNAME_BIN%??}
-run_test_exit "Allowlist prefix match" 126 "Error: Command '$UNAME_PREFIX' not in allowlist" "5:80,24,1:1,${#UNAME_PREFIX}:$UNAME_PREFIX," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Allowlist prefix match" 126 "Error: Command '$UNAME_PREFIX' not in allowlist" "${HEADER}1:1,${#UNAME_PREFIX}:$UNAME_PREFIX," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 14: Premature EOF in netstring data
 # Header says 1 byte, but we send '1' and then close without the comma.
@@ -295,7 +314,7 @@ LONG_PATH=$(printf '%s' "$LONG_PATH" | cut -c "1-$TARGET_LEN")
 
 LONG_COMMENT=$(printf '%2000s' '' | tr ' ' 'C')
 echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
-run_test_exit "Long allowlist line match" 127 "execv: No such file or directory" "5:80,24,1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Long allowlist line match" 127 "execv: No such file or directory" "${HEADER}1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 17: Context-aware Working Directory (chdir)
 # Create a subdirectory, move allowlist there, and verify 'pwd' starts in that directory
@@ -308,7 +327,7 @@ EOF
 # Run host-wrapper with the subdirectory allowlist. 
 # It should chdir into ./subdir before executing pwd.
 ACTUAL_PWD=$("$(pwd)/host-wrapper" "$SUB_ALLOWLIST" <<EOF 2>&1
-5:80,24,1:1,${#PWD_BIN}:$PWD_BIN,
+${HEADER}1:1,${#PWD_BIN}:$PWD_BIN,
 EOF
 )
 
@@ -472,7 +491,7 @@ wc +stdin
 EOF
 run_test_exit "Unresolvable allowlist entry refused" 125 \
     "Error: $UNRESOLVABLE_ALLOWLIST:2: 'wc' has no directory" \
-    "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
+    "${HEADER}1:1,${#UNAME_BIN}:$UNAME_BIN," \
     "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$UNRESOLVABLE_ALLOWLIST"
 
 # An option the wrapper does not know would otherwise be read as no option at
@@ -484,7 +503,7 @@ $WC_BIN +sdtin
 EOF
 run_test_exit "Unknown allowlist option refused" 125 \
     "Error: $UNKNOWN_OPTION_ALLOWLIST:2: unknown option '+sdtin'" \
-    "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
+    "${HEADER}1:1,${#UNAME_BIN}:$UNAME_BIN," \
     "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$UNKNOWN_OPTION_ALLOWLIST"
 
 # Scenario 27.5: --check reports on a list without serving anything
@@ -520,7 +539,7 @@ assert_contains "Audit records a denied command" \
 # the state directory of whoever is running it.
 DEFAULT_ALLOWLIST="./default-allowlist"
 printf '%s\n' "$UNAME_BIN" > "$DEFAULT_ALLOWLIST"
-UNAME_REQUEST="5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN,"
+UNAME_REQUEST="${HEADER}1:1,${#UNAME_BIN}:$UNAME_BIN,"
 
 printf '%s' "$UNAME_REQUEST" | env XDG_STATE_HOME="$TEST_DIR/state" \
     "$LOCAL_HOST_WRAPPER" "$DEFAULT_ALLOWLIST" >/dev/null 2>&1
@@ -588,7 +607,7 @@ EOF
 : > ./notadir
 run_test_exit "Unopenable audit log refuses the request" 125 \
     "audit log ./notadir/audit.log: " \
-    "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
+    "${HEADER}1:1,${#UNAME_BIN}:$UNAME_BIN," \
     "$LOCAL_HOST_WRAPPER" -l ./notadir/audit.log "$ALLOWLIST"
 
 # A log that opens and then refuses the write is the same failure later on, so
@@ -597,7 +616,7 @@ run_test_exit "Unopenable audit log refuses the request" 125 \
 if [ -c /dev/full ]; then
     run_test_exit "Unwritable entry refuses the request" 125 \
         "Error: refusing to run a request that was not recorded" \
-        "5:80,24,1:1,${#UNAME_BIN}:$UNAME_BIN," \
+        "${HEADER}1:1,${#UNAME_BIN}:$UNAME_BIN," \
         "$LOCAL_HOST_WRAPPER" -l /dev/full "$ALLOWLIST"
     assert_equals "Unrecorded request did not run" "$(cat "$CAPTURE_OUT")" ""
 else

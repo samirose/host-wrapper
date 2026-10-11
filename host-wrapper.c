@@ -51,6 +51,9 @@
 #define MAX_ARGS 1024
 #define MAX_ARG_LEN 65536
 
+// The first netstring of every request; host-proxy.c writes the same string.
+#define PROTOCOL_MAGIC "HW1"
+
 // Shell convention: 0-124 belong to the target.
 #define EXIT_WRAPPER_ERROR 125
 #define EXIT_DENIED        126
@@ -836,30 +839,92 @@ execution_cleanup:
 #endif // #ifndef FUZZING
 
 /**
- * Parses the terminal window size netstring from the context (format: "cols,rows").
- * Returns a TerminalSize struct, defaulting to 80x24 on error or absence.
+ * Parses a terminal dimension: decimal digits only, 1 to USHRT_MAX, since it
+ * ends up in a struct winsize. Returns the value, or -1.
  */
-TerminalSize parse_terminal_size(ParserContext *ctx) {
-    TerminalSize size = { .cols = 80, .rows = 24 };
-    char *winsize_str = parse_netstring(ctx, NULL);
-    if (winsize_str) {
-        char *comma = strchr(winsize_str, ',');
-        if (comma) {
-            *comma = '\0';
-            char *endptr1;
-            char *endptr2;
-            long parsed_cols = strtol(winsize_str, &endptr1, 10);
-            long parsed_rows = strtol(comma + 1, &endptr2, 10);
-            if (endptr1 != winsize_str && *endptr1 == '\0' &&
-                endptr2 != (comma + 1) && *endptr2 == '\0' &&
-                parsed_cols > 0 && parsed_rows > 0) {
-                size.cols = (int)parsed_cols;
-                size.rows = (int)parsed_rows;
-            }
-        }
-        free(winsize_str);
+static int parse_dimension(const char *value) {
+    long n = 0;
+    if (*value == '\0') return -1;
+    for (const char *p = value; *p; p++) {
+        if (!isdigit((unsigned char)*p)) return -1;
+        n = n * 10 + (*p - '0');
+        if (n > USHRT_MAX) return -1;
     }
-    return size;
+    return n > 0 ? (int)n : -1;
+}
+
+/**
+ * Applies one key=value header option of len bytes to size. Returns 1, or 0
+ * having reported why.
+ */
+static int apply_option(char *option, size_t len, TerminalSize *size,
+                        int *seen_cols, int *seen_rows) {
+    // An embedded NUL would let "cols=80\0junk" read as "cols=80".
+    char *value = strchr(option, '=');
+    if (strlen(option) != len || !value) {
+        log_error("Error: Malformed header option\n");
+        return 0;
+    }
+    *value++ = '\0';
+
+    int *seen;
+    int *field;
+    if (strcmp(option, "cols") == 0) {
+        seen = seen_cols;
+        field = &size->cols;
+    } else if (strcmp(option, "rows") == 0) {
+        seen = seen_rows;
+        field = &size->rows;
+    } else {
+        log_error("Error: Unknown header option '%s'\n", option);
+        return 0;
+    }
+    if (*seen) {
+        log_error("Error: Repeated header option '%s'\n", option);
+        return 0;
+    }
+    if ((*field = parse_dimension(value)) == -1) {
+        log_error("Error: Invalid header option '%s=%s'\n", option, value);
+        return 0;
+    }
+    *seen = 1;
+    return 1;
+}
+
+/**
+ * Parses the header ahead of argv: the protocol magic, then key=value options
+ * up to an empty netstring. A key is known or the request is refused, and none
+ * may repeat, so the header cannot carry anything this wrapper would ignore.
+ * Returns 0, or -1 having reported why.
+ */
+int parse_header(ParserContext *ctx, TerminalSize *size) {
+    size->cols = 80;
+    size->rows = 24;
+
+    char *magic = parse_netstring(ctx, NULL);
+    if (!magic) return -1;
+    int matches = strcmp(magic, PROTOCOL_MAGIC) == 0;
+    free(magic);
+    if (!matches) {
+        log_error("Error: protocol version mismatch: rebuild host-proxy\n");
+        return -1;
+    }
+
+    int seen_cols = 0;
+    int seen_rows = 0;
+    for (;;) {
+        size_t len;
+        char *option = parse_netstring(ctx, &len);
+        if (!option) return -1;
+        if (len == 0) {
+            free(option);
+            return 0;
+        }
+
+        int ok = apply_option(option, len, size, &seen_cols, &seen_rows);
+        free(option);
+        if (!ok) return -1;
+    }
 }
 
 int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
@@ -869,7 +934,8 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
     char *exec_path = NULL;
     int target_argc = 0;
 
-    TerminalSize termsize = parse_terminal_size(ctx);
+    TerminalSize termsize;
+    if (parse_header(ctx, &termsize) == -1) return EXIT_WRAPPER_ERROR;
     target_argv = parse_target_args(ctx, &target_argc);
     if (!target_argv) return EXIT_WRAPPER_ERROR;
 

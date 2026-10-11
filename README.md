@@ -84,11 +84,11 @@ sequenceDiagram
     participant HostCmd as Host /usr/bin/wc
 
     Guest->>Proxy: Execute: /usr/bin/wc -l
-    Proxy->>Proxy: Format netstrings: 5:80,24,1:2,11:/usr/bin/wc,2:-l,
+    Proxy->>Proxy: Format netstrings: 3:HW1,7:cols=80,7:rows=24,0:,1:2,11:/usr/bin/wc,2:-l,
     Proxy->>SSH: Connect with restricted SSH key
     SSH->>Wrapper: Launch host-wrapper [-n label] [-l log] [allowlist_path]
     Proxy->>Wrapper: Pipe the netstring header over stdin
-    Wrapper->>Wrapper: Parse terminal size & command arguments
+    Wrapper->>Wrapper: Check the protocol version, parse options & arguments
     Wrapper->>Wrapper: Validate "/usr/bin/wc" against allowlist
     Wrapper->>Log: Append entry (ALLOWED, label, peer, /usr/bin/wc)
     rect green
@@ -104,13 +104,13 @@ sequenceDiagram
 ```
 
 ### Request and Streams
-host-proxy sends a header of netstrings (format: `[length]:[payload],`): the terminal size, then `argc` and `argv`. Executing `/usr/bin/wc -l` sends:
+host-proxy sends a header of netstrings (format: `[length]:[payload],`): a protocol version, keyed options carrying the terminal size, then `argc` and `argv`. Executing `/usr/bin/wc -l` sends:
 ```text
-5:80,24,1:2,11:/usr/bin/wc,2:-l,
+3:HW1,7:cols=80,7:rows=24,0:,1:2,11:/usr/bin/wc,2:-l,
 ```
 The target's standard input follows as raw bytes. Because the wrapper parses `stdin` byte-by-byte up to the exact end of the header, the invoked target process natively inherits the remaining raw bytes on the standard input file descriptor.
 
-Nothing else is framed. The target's stdout and stderr return on SSH's separate channels, which keeps them apart but does not preserve their relative order, and its exit status returns as the session's.
+Nothing else is framed. The target's stdout and stderr return on SSH's separate channels, which keeps them apart but does not preserve their relative order, and its exit status returns as the session's. [PROTOCOL.md](PROTOCOL.md) specifies the format and what the wrapper refuses.
 
 To guarantee terminal compliance and color support, approved host processes are spawned inside Dual PTY streams (separating stdout and stderr), mimicking native host execution.
 

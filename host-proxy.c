@@ -35,6 +35,9 @@
 // 0-124 belong to the target; see host-wrapper.c.
 #define EXIT_PROXY_ERROR 125
 
+// The first netstring of every request; host-wrapper.c checks the same string.
+#define PROTOCOL_MAGIC "HW1"
+
 /**
  * Robustly writes all data to a file descriptor, handling partial writes
  * and EINTR. Returns 0 on success, -1 on error.
@@ -144,13 +147,19 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
             break;
         }
     }
-    char winsize_str[32];
-    snprintf(winsize_str, sizeof(winsize_str), "%d,%d", cols, rows);
-    if (write_netstring(pipe_write_fd, winsize_str, strlen(winsize_str)) == -1) {
-        // Pipe is likely broken already
-        close(pipe_write_fd);
-        waitpid(child_pid, NULL, 0);
-        return EXIT_PROXY_ERROR;
+    char cols_opt[32];
+    char rows_opt[32];
+    snprintf(cols_opt, sizeof(cols_opt), "cols=%d", cols);
+    snprintf(rows_opt, sizeof(rows_opt), "rows=%d", rows);
+    // The magic, the options, and the empty netstring that ends them.
+    const char *header[] = { PROTOCOL_MAGIC, cols_opt, rows_opt, "" };
+    for (size_t i = 0; i < sizeof(header) / sizeof(header[0]); i++) {
+        if (write_netstring(pipe_write_fd, header[i], strlen(header[i])) == -1) {
+            // Pipe is likely broken already
+            close(pipe_write_fd);
+            waitpid(child_pid, NULL, 0);
+            return EXIT_PROXY_ERROR;
+        }
     }
 
     // 1. Write target argc (argc-1 because argv[0] is host-proxy)
