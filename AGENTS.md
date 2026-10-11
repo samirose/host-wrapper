@@ -9,6 +9,7 @@ Working notes for AI coding agents and contributors in this repository.
     make test-connect     # connection and host key pinning suite only
     make check-posix      # shell portability policy below, no compiler needed
     make fuzz             # libFuzzer target, requires clang
+    make fuzz-proxy       # libFuzzer target for the response decoder
 
 `make test-connect` stubs out `ip` and `ssh`, so it needs neither a network, a
 container, nor a configured host. Building on glibc Linux needs

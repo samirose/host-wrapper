@@ -668,9 +668,18 @@ char* workspace_dir(const char *allowlist_path) {
 
 #ifndef FUZZING
 
+static int write_frame(char tag, const void *data, size_t len) {
+    char head[32];
+    int head_len = snprintf(head, sizeof(head), "%zu:%c", len + 1, tag);
+    if (write_all(STDOUT_FILENO, head, (size_t)head_len) == -1) return -1;
+    if (write_all(STDOUT_FILENO, data, len) == -1) return -1;
+    return write_all(STDOUT_FILENO, ",", 1);
+}
+
 /**
- * Forwards everything readable on a PTY master to out_fd. Returns 1 once the
- * stream is finished, 0 while it may still yield more, -1 on a write failure.
+ * Forwards everything readable on a PTY master as frames tagged tag. Returns 1
+ * once the stream is finished, 0 while it may still yield more, -1 on a write
+ * failure.
  * master_fd must be O_NONBLOCK: a pass ends on EAGAIN, which a blocking read
  * would never report.
  *
@@ -679,13 +688,13 @@ char* workspace_dir(const char *allowlist_path) {
  * stream. A drained master reports EIO on Linux and a zero read on macOS; both
  * mean end of output.
  */
-static int drain_pty(int master_fd, int out_fd, const char *name) {
+static int drain_pty(int master_fd, char tag, const char *name) {
     unsigned char buf[4096];
 
     for (;;) {
         ssize_t n = read(master_fd, buf, sizeof(buf));
         if (n > 0) {
-            if (write_all(out_fd, buf, (size_t)n) == -1) {
+            if (write_frame(tag, buf, (size_t)n) == -1) {
                 log_error("write %s: %s\n", name, strerror(errno));
                 return -1;
             }
@@ -780,13 +789,13 @@ int execute_command_with_pty(const char *exec_path, char **target_argv, int targ
     close(slave_out); slave_out = -1;
     close(slave_err); slave_err = -1;
 
-    // Where each master's output goes, indexed in step with fds below.
+    // The frame tag for each master's output, indexed in step with fds below.
     static const struct {
-        int out_fd;
+        char tag;
         const char *name;
     } streams[] = {
-        { STDOUT_FILENO, "stdout" },
-        { STDERR_FILENO, "stderr" },
+        { '1', "stdout" },
+        { '2', "stderr" },
     };
     enum { NSTREAMS = sizeof(streams) / sizeof(streams[0]) };
 
@@ -808,7 +817,7 @@ int execute_command_with_pty(const char *exec_path, char **target_argv, int targ
         for (int i = 0; i < NSTREAMS; i++) {
             if (fds[i].fd == -1 || fds[i].revents == 0) continue;
 
-            int drained = drain_pty(fds[i].fd, streams[i].out_fd, streams[i].name);
+            int drained = drain_pty(fds[i].fd, streams[i].tag, streams[i].name);
             if (drained == -1) goto forwarding_done;
 
             // POLLERR alone would otherwise spin: nothing to read and no EOF.
@@ -1026,21 +1035,10 @@ void usage(const char *program) {
             program, program);
 }
 
-int main(int argc, char *argv[]) {
+static int serve(int argc, char *argv[]) {
     const char *log_path = NULL;
     const char *label = "-";
     int opt;
-
-    // A mode rather than an option: it serves no request, so it takes none of
-    // the settings serving one needs. Matched here because POSIX getopt has no
-    // long options.
-    if (argc > 1 && strcmp(argv[1], "--check") == 0) {
-        if (argc != 3) {
-            usage(argv[0]);
-            return EXIT_WRAPPER_ERROR;
-        }
-        return check_allowlist(argv[2]);
-    }
 
     // Options come from the forced command in authorized_keys, so they are the
     // host's settings for this key and never the guest's.
@@ -1107,6 +1105,27 @@ int main(int argc, char *argv[]) {
     close(audit_fd);
     free(workspace);
     fclose(fp);
+    return ret;
+}
+
+int main(int argc, char *argv[]) {
+    // A mode rather than an option: it serves no request, so it takes none of
+    // the settings serving one needs. Matched here because POSIX getopt has no
+    // long options.
+    if (argc > 1 && strcmp(argv[1], "--check") == 0) {
+        if (argc != 3) {
+            usage(argv[0]);
+            return EXIT_WRAPPER_ERROR;
+        }
+        return check_allowlist(argv[2]);
+    }
+
+    // Every outcome, refusals included, ends in a status frame, so a response
+    // without one can only be a transport that failed.
+    int ret = serve(argc, argv);
+    char status[16];
+    int len = snprintf(status, sizeof(status), "%d", ret);
+    if (write_frame('x', status, (size_t)len) == -1) return EXIT_WRAPPER_ERROR;
     return ret;
 }
 #endif

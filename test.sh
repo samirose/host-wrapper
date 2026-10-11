@@ -318,7 +318,8 @@ LONG_PATH=$(printf '%s' "$LONG_PATH" | cut -c "1-$TARGET_LEN")
 
 LONG_COMMENT=$(printf '%2000s' '' | tr ' ' 'C')
 echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
-run_test_exit "Long allowlist line match" 127 "execv: No such file or directory" "${HEADER}1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+# The child reports a failed exec on the target's stderr, which arrives framed.
+_run_test_base "Long allowlist line match" 127 out "2execv: No such file or directory" "${HEADER}1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 # Scenario 17: Context-aware Working Directory (chdir)
 # Create a subdirectory, move allowlist there, and verify 'pwd' starts in that directory
@@ -364,6 +365,20 @@ else
     report "Stdout/Stderr separation" no "  Expected stdout: OUT_DATA, Actual: $OUT_VAL
   Expected stderr: ERR_DATA, Actual: $ERR_VAL"
 fi
+
+# Scenario 18.1: Writes to the two streams keep their order once the target
+# pauses between them. Back-to-back writes to both may arrive in either order:
+# they come off two pseudo-terminals.
+ALTERNATE='echo OUT1; sleep 0.2; echo ERR1 >&2; sleep 0.2; echo OUT2; sleep 0.2; echo ERR2 >&2'
+"$LOCAL_HOST_PROXY" "$SH_BIN" -c "$ALTERNATE" > "$OUT_FILE" 2>&1
+assert_equals "Alternating streams keep their order" "$(cat "$OUT_FILE")" "OUT1
+ERR1
+OUT2
+ERR2"
+"$LOCAL_HOST_PROXY" "$SH_BIN" -c "$ALTERNATE" > "$OUT_FILE" 2> "$ERR_FILE"
+assert_equals "Alternating streams stay separate" "$(cat "$OUT_FILE")/$(cat "$ERR_FILE")" "OUT1
+OUT2/ERR1
+ERR2"
 
 # Scenario 19: Verify +stdin restriction
 # Verify that a command without +stdin receives 0 bytes (EOF)
@@ -622,7 +637,7 @@ if [ -c /dev/full ]; then
         "Error: refusing to run a request that was not recorded" \
         "${HEADER}1:1,${#UNAME_BIN}:$UNAME_BIN," \
         "$LOCAL_HOST_WRAPPER" -l /dev/full "$ALLOWLIST"
-    assert_equals "Unrecorded request did not run" "$(cat "$CAPTURE_OUT")" ""
+    assert_equals "Unrecorded request did not run" "$(cat "$CAPTURE_OUT")" "4:x125,"
 else
     printf '  (no /dev/full: skipping the unwritable-entry scenario)\n'
 fi
@@ -672,11 +687,31 @@ run_test_exit "Proxy usage error exits 125" 125 "Usage:" "" "$LOCAL_HOST_PROXY"
 run_test_exit "Unrunnable connector exits 125" 125 "execvp failed" "" \
     env HOST_PROXY_SSH_SCRIPT=./no-such-connector "$LOCAL_HOST_PROXY" "$UNAME_BIN"
 
-# Scenario 30: Connector killed by a signal
-cat <<EOF > "host-proxy-ssh.sh"
-#!/bin/sh
-kill -TERM \$\$
-EOF
-run_test_exit "Killed connector exits 128+n" 143 "" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
+# Scenario 30: The response. Only an x frame reports a status, so a connector
+# that ends without one is a transport failure whatever its own exit.
+TRANSPORT_FAILED="Error: transport failed before the command reported status"
+MALFORMED="Error: malformed response from host-wrapper"
+respond() {
+    printf '#!/bin/sh\nprintf %s\n%s\n' "'$1'" "$2" > host-proxy-ssh.sh
+}
+respond '2:x7,' 'exit 0'
+run_test_exit "Status frame decides the exit" 7 "" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
+respond '' 'kill -TERM $$'
+run_test_exit "Killed connector exits 125" 125 "$TRANSPORT_FAILED" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
+respond '' 'exit 255'
+run_test_exit "Connector exiting 255 exits 125" 125 "$TRANSPORT_FAILED" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
+respond '6:1hello,' 'exit 0'
+run_test_exit "Response without a status" 125 "$TRANSPORT_FAILED" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
+assert_equals "Chunks before a failure still arrive" "$(cat "$CAPTURE_OUT")" "hello"
+respond '9:1hel' 'exit 0'
+run_test_exit "Truncated frame" 125 "$TRANSPORT_FAILED" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
+respond '3:9ab,2:x0,' 'exit 0'
+run_test_exit "Unknown frame tag" 125 "$MALFORMED" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
+respond '06:1hello,2:x0,' 'exit 0'
+run_test_exit "Frame length with a leading zero" 125 "$MALFORMED" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
+respond '2:x0,6:1hello,' 'exit 0'
+run_test_exit "Frame after the status" 125 "$MALFORMED" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
+respond '4:x256,' 'exit 0'
+run_test_exit "Status out of range" 125 "$MALFORMED" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
 
 test_summary

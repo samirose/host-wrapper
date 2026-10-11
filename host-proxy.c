@@ -38,6 +38,9 @@
 // The first netstring of every request; host-wrapper.c checks the same string.
 #define PROTOCOL_MAGIC "HW1"
 
+// A tag byte and a 64 KiB chunk.
+#define MAX_FRAME (65536 + 1)
+
 /**
  * Robustly writes all data to a file descriptor, handling partial writes
  * and EINTR. Returns 0 on success, -1 on error.
@@ -70,18 +73,151 @@ int write_netstring(int fd, const char *data, size_t len) {
     return 0;
 }
 
+typedef enum {
+    FRAME_LENGTH,
+    FRAME_TAG,
+    FRAME_DATA,
+    FRAME_COMMA,
+    FRAME_DONE,
+} FrameState;
+
+typedef struct {
+    FrameState state;
+    size_t length;
+    size_t digits;
+    size_t remaining;
+    char tag;
+    char status[4];
+    size_t status_len;
+    int exit_status;
+} FrameDecoder;
+
+typedef int (*FrameSink)(char tag, const unsigned char *data, size_t len);
+
+void frame_decoder_init(FrameDecoder *d) {
+    memset(d, 0, sizeof(*d));
+    d->state = FRAME_LENGTH;
+    d->exit_status = -1;
+}
+
+static int parse_status(const char *s, size_t len) {
+    if (len == 0 || (len > 1 && s[0] == '0')) return -1;
+    int n = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] < '0' || s[i] > '9') return -1;
+        n = n * 10 + (s[i] - '0');
+    }
+    return n <= 255 ? n : -1;
+}
+
+// Returns 0, -1 on a malformed response, or -2 when sink failed.
+int decode_frames(FrameDecoder *d, const unsigned char *buf, size_t len, FrameSink sink) {
+    size_t i = 0;
+    while (i < len) {
+        unsigned char c = buf[i];
+        switch (d->state) {
+        case FRAME_LENGTH:
+            if (c >= '0' && c <= '9') {
+                if (d->digits == 1 && d->length == 0) return -1;
+                d->length = d->length * 10 + (c - '0');
+                d->digits++;
+                if (d->length > MAX_FRAME) return -1;
+            } else if (c == ':' && d->length > 0) {
+                d->remaining = d->length - 1;
+                d->state = FRAME_TAG;
+            } else {
+                return -1;
+            }
+            i++;
+            break;
+        case FRAME_TAG:
+            if (c != '1' && c != '2' && c != 'x') return -1;
+            if (c == 'x' && d->remaining > sizeof(d->status) - 1) return -1;
+            d->tag = (char)c;
+            d->state = d->remaining > 0 ? FRAME_DATA : FRAME_COMMA;
+            i++;
+            break;
+        case FRAME_DATA: {
+            size_t n = len - i < d->remaining ? len - i : d->remaining;
+            if (d->tag == 'x') {
+                memcpy(d->status + d->status_len, buf + i, n);
+                d->status_len += n;
+            } else if (sink(d->tag, buf + i, n) == -1) {
+                return -2;
+            }
+            d->remaining -= n;
+            i += n;
+            if (d->remaining == 0) d->state = FRAME_COMMA;
+            break;
+        }
+        case FRAME_COMMA:
+            if (c != ',') return -1;
+            i++;
+            if (d->tag == 'x') {
+                d->exit_status = parse_status(d->status, d->status_len);
+                if (d->exit_status == -1) return -1;
+                d->state = FRAME_DONE;
+            } else {
+                d->length = 0;
+                d->digits = 0;
+                d->state = FRAME_LENGTH;
+            }
+            break;
+        case FRAME_DONE:
+            return -1;
+        }
+    }
+    return 0;
+}
+
+#ifndef FUZZING
+static int write_chunk(char tag, const unsigned char *data, size_t len) {
+    return write_all(tag == '1' ? STDOUT_FILENO : STDERR_FILENO, data, len);
+}
+
+static int read_response(int fd) {
+    FrameDecoder d;
+    frame_decoder_init(&d);
+    unsigned char buf[4096];
+    for (;;) {
+        ssize_t n = read(fd, buf, sizeof(buf));
+        if (n < 0 && errno == EINTR) continue;
+        if (n < 0) {
+            perror("read response");
+            return EXIT_PROXY_ERROR;
+        }
+        if (n == 0) break;
+        int decoded = decode_frames(&d, buf, (size_t)n, write_chunk);
+        if (decoded == -2) {
+            // As a process writing into a closed pipe would end by default.
+            if (errno == EPIPE) return 128 + SIGPIPE;
+            perror("write");
+            return EXIT_PROXY_ERROR;
+        }
+        if (decoded == -1) {
+            fprintf(stderr, "Error: malformed response from host-wrapper\n");
+            return EXIT_PROXY_ERROR;
+        }
+    }
+    if (d.state != FRAME_DONE) {
+        fprintf(stderr, "Error: transport failed before the command reported status\n");
+        return EXIT_PROXY_ERROR;
+    }
+    return d.exit_status;
+}
+
 /**
- * Child process logic: Redirects stdin to the read end of the pipe
- * and executes the SSH connection script.
+ * Child process logic: connects the request pipe to stdin and the response
+ * pipe to stdout, and executes the SSH connection script.
  * The script is expected to be in the same directory as the proxy binary.
  */
-void execute_ssh_child(int pipe_read_fd, const char *proxy_dir) {
-    // Redirect stdin from the pipe
-    if (dup2(pipe_read_fd, 0) == -1) {
+void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
+    if (dup2(request_fd, STDIN_FILENO) == -1 || dup2(response_fd, STDOUT_FILENO) == -1) {
         perror("dup2");
         exit(EXIT_PROXY_ERROR);
     }
-    close(pipe_read_fd);
+    close(request_fd);
+    close(response_fd);
 
     // Construct the path to the connection script.
     // Check for the HOST_PROXY_SSH_SCRIPT environment variable first,
@@ -123,14 +259,7 @@ void execute_stdin_pump(int pipe_write_fd) {
     exit(0);
 }
 
-/**
- * Parent process logic: Serializes argv, forks a dedicated stdin pump process,
- * waits for the SSH process to exit, and then cleans up the pump.
- */
-int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *argv[]) {
-    // Ignore SIGPIPE so processes can handle broken pipes via return values
-    signal(SIGPIPE, SIG_IGN);
-
+static int send_request(int fd, int argc, char *argv[]) {
     // Get terminal size of the invoking environment. Any of the three standard
     // descriptors will do, and all three have to be tried: piping input into a
     // command leaves stdin a pipe while the terminal is still on stdout, and
@@ -154,70 +283,58 @@ int execute_proxy_parent(int pipe_write_fd, pid_t child_pid, int argc, char *arg
     // The magic, the options, and the empty netstring that ends them.
     const char *header[] = { PROTOCOL_MAGIC, cols_opt, rows_opt, "" };
     for (size_t i = 0; i < sizeof(header) / sizeof(header[0]); i++) {
-        if (write_netstring(pipe_write_fd, header[i], strlen(header[i])) == -1) {
-            // Pipe is likely broken already
-            close(pipe_write_fd);
-            waitpid(child_pid, NULL, 0);
-            return EXIT_PROXY_ERROR;
-        }
+        if (write_netstring(fd, header[i], strlen(header[i])) == -1) return -1;
     }
 
-    // 1. Write target argc (argc-1 because argv[0] is host-proxy)
     char argc_str[16];
-    int target_argc = argc - 1;
-    snprintf(argc_str, sizeof(argc_str), "%d", target_argc);
-    if (write_netstring(pipe_write_fd, argc_str, strlen(argc_str)) == -1) {
-        // Pipe is likely broken already
-        close(pipe_write_fd);
-        waitpid(child_pid, NULL, 0);
-        return EXIT_PROXY_ERROR;
-    }
-
-    // 2. Write target argv
+    snprintf(argc_str, sizeof(argc_str), "%d", argc - 1);
+    if (write_netstring(fd, argc_str, strlen(argc_str)) == -1) return -1;
     for (int i = 1; i < argc; i++) {
-        if (write_netstring(pipe_write_fd, argv[i], strlen(argv[i])) == -1) {
-            close(pipe_write_fd);
-            waitpid(child_pid, NULL, 0);
-            return EXIT_PROXY_ERROR;
+        if (write_netstring(fd, argv[i], strlen(argv[i])) == -1) return -1;
+    }
+    return 0;
+}
+
+/**
+ * Parent process logic: sends the request, pumps stdin behind it, and relays
+ * the response until the wrapper reports a status or the transport ends.
+ */
+int execute_proxy_parent(int request_fd, int response_fd, pid_t child_pid,
+                         int argc, char *argv[]) {
+    // Ignore SIGPIPE so processes can handle broken pipes via return values
+    signal(SIGPIPE, SIG_IGN);
+
+    // A wrapper that refuses a request may stop reading it part way, and its
+    // status frame is still the answer, so a failed send goes on to the
+    // response.
+    pid_t pump_pid = -1;
+    if (send_request(request_fd, argc, argv) == 0) {
+        pump_pid = fork();
+        if (pump_pid == -1) perror("fork pump");
+        if (pump_pid == 0) {
+            close(response_fd);
+            execute_stdin_pump(request_fd);
         }
     }
+    // The pump holds the only write end left, so its exit is the connector's EOF.
+    close(request_fd);
 
-    // 3. Fork a dedicated stdin pump process
-    pid_t pump_pid = fork();
-    if (pump_pid == -1) {
-        perror("fork pump");
+    int result = read_response(response_fd);
+    close(response_fd);
+
+    // Clean up the pump if it is still waiting for input (e.g., from an open terminal).
+    if (pump_pid > 0) {
+        kill(pump_pid, SIGTERM);
+        waitpid(pump_pid, NULL, 0);
+    }
+
+    pid_t waited;
+    while ((waited = waitpid(child_pid, NULL, 0)) == -1 && errno == EINTR) {}
+    if (waited == -1) {
+        perror("waitpid");
         return EXIT_PROXY_ERROR;
     }
-
-    if (pump_pid == 0) {
-        execute_stdin_pump(pipe_write_fd);
-        // execute_stdin_pump never returns
-    }
-
-    // --- Main Parent Process ---
-    // Close the write end of the pipe in the parent so that when the pump dies,
-    // the SSH process receives an EOF on its stdin.
-    close(pipe_write_fd);
-
-    // 4. Wait for SSH to finish
-    int status;
-    pid_t waited;
-    while ((waited = waitpid(child_pid, &status, 0)) == -1 && errno == EINTR) {}
-    if (waited == -1) perror("waitpid");
-
-    // 5. SSH is done. The host command has finished.
-    // Clean up the pump if it is still waiting for input (e.g., from an open terminal).
-    kill(pump_pid, SIGTERM);
-    waitpid(pump_pid, NULL, 0);
-
-    if (waited == -1) return EXIT_PROXY_ERROR;
-    if (WIFEXITED(status)) {
-        return WEXITSTATUS(status);
-    }
-    if (WIFSIGNALED(status)) {
-        return 128 + WTERMSIG(status);
-    }
-    return EXIT_PROXY_ERROR;
+    return result;
 }
 
 int main(int argc, char *argv[]) {
@@ -242,8 +359,9 @@ int main(int argc, char *argv[]) {
         goto cleanup;
     }
 
-    int pipe_fds[2];
-    if (pipe(pipe_fds) == -1) {
+    int request_fds[2];
+    int response_fds[2];
+    if (pipe(request_fds) == -1 || pipe(response_fds) == -1) {
         perror("pipe");
         goto cleanup;
     }
@@ -255,12 +373,14 @@ int main(int argc, char *argv[]) {
     }
 
     if (pid == 0) {
-        close(pipe_fds[1]); // Close write end in child
-        execute_ssh_child(pipe_fds[0], proxy_dir);
+        close(request_fds[1]);
+        close(response_fds[0]);
+        execute_ssh_child(request_fds[0], response_fds[1], proxy_dir);
         // execute_ssh_child never returns
     } else {
-        close(pipe_fds[0]); // Close read end in parent
-        result = execute_proxy_parent(pipe_fds[1], pid, argc, argv);
+        close(request_fds[0]);
+        close(response_fds[1]);
+        result = execute_proxy_parent(request_fds[1], response_fds[0], pid, argc, argv);
     }
 
 cleanup:
@@ -268,3 +388,4 @@ cleanup:
     free(proxy_dir);
     return result;
 }
+#endif

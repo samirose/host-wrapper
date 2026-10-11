@@ -99,7 +99,7 @@ sequenceDiagram
     Wrapper->>HostCmd: fork() & execv() inside Dual PTYs
     Wrapper->>HostCmd: Stream stdin
     HostCmd-->>Wrapper: Stream stdout/stderr
-    Wrapper-->>Proxy: stdout and stderr on SSH's separate channels
+    Wrapper-->>Proxy: Framed stdout/stderr chunks, then the exit status
     Proxy-->>Guest: Propagate streams & exit code
 ```
 
@@ -110,27 +110,26 @@ host-proxy sends a header of netstrings (format: `[length]:[payload],`): a proto
 ```
 The target's standard input follows as raw bytes. Because the wrapper parses `stdin` byte-by-byte up to the exact end of the header, the invoked target process natively inherits the remaining raw bytes on the standard input file descriptor.
 
-Nothing else is framed. The target's stdout and stderr return on SSH's separate channels, which keeps them apart but does not preserve their relative order, and its exit status returns as the session's. [PROTOCOL.md](PROTOCOL.md) specifies the format and what the wrapper refuses.
+The response is framed the same way: each chunk of the target's stdout or stderr is a netstring tagged with its stream, and a final frame carries the exit status. host-proxy writes each chunk to its own stdout or stderr as it arrives, so the transport needs only one ordered byte stream in each direction. [PROTOCOL.md](PROTOCOL.md) specifies the format and what each side refuses.
 
 To guarantee terminal compliance and color support, approved host processes are spawned inside Dual PTY streams (separating stdout and stderr), mimicking native host execution.
 
 ### Exit Status
 `host-proxy` exits with the target's status. Codes from 125 up follow the shell convention and report a command that did not run to completion:
 
-| Code    | Meaning                                                            |
-|---------|--------------------------------------------------------------------|
-| 0–124   | Exit status of the target                                          |
-| 125     | host-proxy or host-wrapper failed, e.g. a malformed request        |
-| 126     | Command denied by the allowlist                                    |
-| 127     | Command allowlisted but could not be executed                      |
-| 128+*n* | Target killed by signal *n*                                        |
-| 255     | `ssh` failed to connect; also what a target exiting 255 reports    |
+| Code    | Meaning                                                                                                                  |
+|---------|--------------------------------------------------------------------------------------------------------------------------|
+| 0–124   | Exit status of the target                                                                                                |
+| 125     | host-proxy or host-wrapper failed, e.g. a malformed request, or the transport ended before the command reported a status |
+| 126     | Command denied by the allowlist                                                                                          |
+| 127     | Command allowlisted but could not be executed                                                                            |
+| 128+*n* | Target killed by signal *n*                                                                                              |
 
 ---
 
 ## Security Design
 
-There is a test script that test behaviour and key security features. The host-side netstring and argument parser have been extensively fuzzed under AddressSanitizer and UndefinedBehaviorSanitizer to test for memory leaks, crashes, and out-of-bounds access.
+There is a test script that test behaviour and key security features. The host-side netstring and argument parser, and the guest-side response decoder, have been extensively fuzzed under AddressSanitizer and UndefinedBehaviorSanitizer to test for memory leaks, crashes, and out-of-bounds access.
 
 ### Key Security Features
 1. **Enforced SSH Command Context**: The client's public key in the host's `~/.ssh/authorized_keys` file is restricted using `restrict,command="/path/to/host-wrapper -n label -l /path/to/audit.log /path/to/allowlist"`. This guarantees that even if a guest container is compromised, it can only invoke the host-wrapper via SSH. `restrict` turns off forwarding, the pty, `~/.ssh/rc` and any feature a later OpenSSH adds, and the line grants nothing back. `host-authorized-key.sh` prints it.
@@ -350,7 +349,8 @@ The repository includes example templates under the [`examples/`](examples/) dir
 make test           # protocol suite, connection suite, portability policy
 make test-connect   # connection setup only, needs no compiler
 make check-posix    # shell portability policy
-make fuzz           # 60-second libFuzzer run, needs clang
+make fuzz           # 60-second libFuzzer run on host-wrapper's parser, needs clang
+make fuzz-proxy     # the same for host-proxy's response decoder
 make test-linux     # the whole suite on Linux, in a container (macOS only)
 ```
 

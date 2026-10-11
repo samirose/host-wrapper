@@ -3,6 +3,7 @@ host-wrapper
 host-proxy-test
 host-wrapper-test
 host-wrapper-fuzzer
+host-proxy-fuzzer
 host-proxy-ssh.sh
 # ...except the one the generator installs from, which is a source file.
 !share/host-proxy-ssh.sh

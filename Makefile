@@ -15,7 +15,7 @@ TEST_HELPERS = tests/winsize-probe tests/run-on-pty
 
 all: host-wrapper host-proxy
 
-.PHONY: all test test-connect test-linux check-posix fuzz fuzz-minimize clean
+.PHONY: all test test-connect test-linux check-posix fuzz fuzz-minimize fuzz-proxy fuzz-proxy-minimize clean
 
 host-wrapper: host-wrapper.c
 	$(CC) $(CFLAGS) -o $@ host-wrapper.c $(LDLIBS)
@@ -87,8 +87,22 @@ fuzz-minimize: host-wrapper-fuzzer
 	rm -rf corpus
 	mv corpus_min corpus
 
+# host-proxy's response decoder, fed its input in reads of varying size
+host-proxy-fuzzer: host-proxy.c fuzz-proxy.c
+	$(CLANG) $(CFLAGS) -fsanitize=fuzzer,address,undefined -o $@ fuzz-proxy.c
+
+fuzz-proxy: host-proxy-fuzzer
+	mkdir -p corpus-proxy
+	./host-proxy-fuzzer -max_total_time=60 -rss_limit_mb=2048 -max_len=70000 corpus-proxy
+
+fuzz-proxy-minimize: host-proxy-fuzzer
+	mkdir -p corpus-proxy_min
+	./host-proxy-fuzzer -merge=1 -max_len=70000 corpus-proxy_min corpus-proxy
+	rm -rf corpus-proxy
+	mv corpus-proxy_min corpus-proxy
+
 clean:
-	rm -f host-wrapper host-proxy host-wrapper-fuzzer host-wrapper-test host-proxy-test
+	rm -f host-wrapper host-proxy host-wrapper-fuzzer host-proxy-fuzzer host-wrapper-test host-proxy-test
 	rm -f $(TEST_HELPERS)
 	rm -rf corpus_min
 	rm -f crash-* leak-* timeout-* oom-*
