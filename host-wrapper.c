@@ -60,12 +60,8 @@
 #define EXIT_EXEC_FAILED   127
 
 /**
- * Logs an error to stderr. If FUZZING is defined, this is a no-op 
- * to ensure the fuzzer runs at maximum speed without I/O blocking.
- */
-/**
- * Writes all of buf, retrying a partial write and EINTR. Returns 0, or -1 with
- * some of the data unwritten.
+ * Writes all of buf, retrying a partial write and EINTR. Returns 0, or -1 on error or with some of
+ * the data unwritten.
  */
 int write_all(int fd, const void *buf, size_t count) {
     const char *ptr = buf;
@@ -89,14 +85,12 @@ void log_error(const char *format, ...) {
     vfprintf(stderr, format, args);
     va_end(args);
 #else
-    (void)format; // Suppress unused parameter warning
+    (void)format;
 #endif
 }
 
 /**
- * Creates the directories leading to path, each private to the user. The log
- * is placed rather than asked to follow a directory somebody prepared, so a
- * host that has never run the wrapper needs nothing set up by hand.
+ * Creates the directories leading to path, each private to the user.
  */
 int make_parent_dirs(const char *path) {
     char dir[PATH_MAX];
@@ -202,9 +196,7 @@ typedef struct AuditLog {
 } AuditLog;
 
 /**
- * Writes one argument as text that cannot leave the line it is on. The request
- * comes from the guest, so an argument carrying a newline would otherwise
- * append an entry of the guest's own wording to the trail.
+ * Writes one argument as text, escaping newlines to keep each argument on its own log line.
  */
 static void audit_write_arg(FILE *out, const char *arg) {
     for (const unsigned char *p = (const unsigned char *)arg; *p; p++) {
@@ -219,9 +211,7 @@ static void audit_write_arg(FILE *out, const char *arg) {
 }
 
 /**
- * Appends one execution event to the audit trail. Returns 0 once the entry is
- * written, -1 when it is not: the caller decides what an unrecorded event is
- * worth, and for one about to run a command the answer is that it does not.
+ * Appends one execution event to the audit trail. Returns 0 on success, -1 on failure.
  */
 int audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
 #ifndef FUZZING
@@ -301,7 +291,7 @@ int get_next_byte(ParserContext *ctx) {
 
 /**
  * Parses a single netstring from the context.
- * Format: [length]:[data],
+ * Format: [length]:[data], where length is in ASCII decimal digits.
  */
 char* parse_netstring(ParserContext *ctx, size_t *out_len) {
     char len_buf[16];
@@ -377,11 +367,9 @@ char* parse_netstring(ParserContext *ctx, size_t *out_len) {
 /**
  * Resolves a command to the absolute path of the file to run: either named
  * absolutely, or relative to the allowlist directory, which is where the
- * target runs. Allowlist entries and requests go through this, so the string
- * compared is the file executed, and nothing is searched for on PATH.
+ * target runs.
  *
- * Returns a malloc'd path, or NULL with *why set to the reason it names no
- * single file.
+ * Returns a malloc'd path, or NULL on failure with *why set to the reason.
  */
 char* resolve_command(const char *path, const char *workspace, const char **why) {
     *why = NULL;
@@ -425,27 +413,17 @@ char* resolve_command(const char *path, const char *workspace, const char **why)
     return resolved;
 }
 
-/**
- * Checks if the given command is present and enabled in the allowlist file.
- * The allowlist supports comments (#) and empty lines.
- */
 typedef struct {
     int allowed;
     int has_stdin;
 } AllowlistResult;
 
 /**
- * Checks if the given command is present and enabled in the allowlist file.
- * The allowlist supports comments (#) and empty lines.
- */
-/**
  * Reduces one allowlist line, in place, to the command it names, and reports
  * the options set on it. Returns NULL for a blank or comment-only line.
  *
  * *bad_option is the first token that is not an option this wrapper knows, and
- * points into line. An entry carrying one asks for something the wrapper
- * cannot honour, so both callers refuse the entry rather than reading it as the
- * command alone.
+ * points into line.
  */
 char* allowlist_entry(char *line, int *has_stdin, const char **bad_option) {
     *has_stdin = 0;
@@ -490,8 +468,7 @@ char* allowlist_entry(char *line, int *has_stdin, const char **bad_option) {
 }
 
 /**
- * cmd is the request already resolved, so both sides of the comparison have
- * been through resolve_command.
+ * Checks if the given command is present and enabled in the allowlist file.
  */
 AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) {
     AllowlistResult res = { .allowed = 0, .has_stdin = 0 };
@@ -528,8 +505,7 @@ AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) 
 }
 
 /**
- * Reports every allowlist entry the wrapper cannot enforce as written — one
- * naming no single file, or setting an option this wrapper does not know — so
+ * Reports every allowlist entry the wrapper cannot enforce as written, so
  * that it can refuse to serve a request against such a list. Leaves the
  * stream rewound for the lookup. Returns the number of entries read, or -1 if
  * any of them is unusable.

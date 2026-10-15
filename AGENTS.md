@@ -198,10 +198,18 @@ The rules above hold for comments in code as well, and more with them:
   cannot show. A comment saying what an error message beside it already says
   is the one to cut.
 - **Do not explain the tooling.** Whoever reads this repository knows what a
-  lock file pins, what `set -e` does, and what a Nix devShell is. Comment what
-  they cannot derive: why this list, why this order, what breaks without it.
+  lock file pins, what `set -e` does, what `(void)arg;` is for, and what a Nix
+  devShell is. Comment what they cannot derive: why this list, why this order,
+  what breaks without it.
 - **Two accurate lines beat six.** If a comment restates the code beneath it,
   the restating half is what to cut.
+- **A function comment describes its interface.** What it does, what it returns
+  and what each return means, including every way it can fail. Leave out what
+  callers do with the result and how the body gets there; a reason that
+  belongs to one caller goes beside that call.
+- **A comment sits directly above what it describes.** Moving or deleting code
+  moves or deletes its comment. Two comment blocks stacked over one declaration
+  mean one of them belongs elsewhere.
 
 ## Commits
 
