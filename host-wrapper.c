@@ -173,6 +173,6 @@ int main(int argc, char *argv[]) {
     int ret = serve(argc, argv);
     char status[16];
     int len = snprintf(status, sizeof(status), "%d", ret);
-    if (write_frame('x', status, (size_t)len) == -1) return EXIT_INTERNAL_ERROR;
+    if (write_frame(TAG_STATUS, status, (size_t)len) == -1) return EXIT_INTERNAL_ERROR;
     return ret;
 }

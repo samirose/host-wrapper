@@ -107,15 +107,15 @@ int decode_frames(FrameDecoder *d, const unsigned char *buf, size_t len, FrameSi
             i++;
             break;
         case FRAME_TAG:
-            if (c != '1' && c != '2' && c != 'x') return -1;
-            if (c == 'x' && d->remaining > sizeof(d->status) - 1) return -1;
+            if (c != TAG_STDOUT && c != TAG_STDERR && c != TAG_STATUS) return -1;
+            if (c == TAG_STATUS && d->remaining > sizeof(d->status) - 1) return -1;
             d->tag = (char)c;
             d->state = d->remaining > 0 ? FRAME_DATA : FRAME_COMMA;
             i++;
             break;
         case FRAME_DATA: {
             size_t n = len - i < d->remaining ? len - i : d->remaining;
-            if (d->tag == 'x') {
+            if (d->tag == TAG_STATUS) {
                 memcpy(d->status + d->status_len, buf + i, n);
                 d->status_len += n;
             } else if (sink(d->tag, buf + i, n) == -1) {
@@ -129,7 +129,7 @@ int decode_frames(FrameDecoder *d, const unsigned char *buf, size_t len, FrameSi
         case FRAME_COMMA:
             if (c != ',') return -1;
             i++;
-            if (d->tag == 'x') {
+            if (d->tag == TAG_STATUS) {
                 d->exit_status = parse_status(d->status, d->status_len);
                 if (d->exit_status == -1) return -1;
                 d->state = FRAME_DONE;
@@ -148,7 +148,7 @@ int decode_frames(FrameDecoder *d, const unsigned char *buf, size_t len, FrameSi
 
 #ifndef FUZZING
 static int write_chunk(char tag, const unsigned char *data, size_t len) {
-    return write_all(tag == '1' ? STDOUT_FILENO : STDERR_FILENO, data, len);
+    return write_all(tag == TAG_STDOUT ? STDOUT_FILENO : STDERR_FILENO, data, len);
 }
 
 static int read_response(int fd) {

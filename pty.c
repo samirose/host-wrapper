@@ -122,8 +122,8 @@ int execute_command_with_pty(const char *exec_path, char **target_argv, int targ
         char tag;
         const char *name;
     } streams[] = {
-        { '1', "stdout" },
-        { '2', "stderr" },
+        { TAG_STDOUT, "stdout" },
+        { TAG_STDERR, "stderr" },
     };
     enum { NSTREAMS = sizeof(streams) / sizeof(streams[0]) };
 
