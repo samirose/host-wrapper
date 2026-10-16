@@ -1,4 +1,3 @@
-#ifndef FUZZING
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
 #include <util.h>
 #else
@@ -170,5 +169,3 @@ execution_cleanup:
     (void)target_argc;
     return ret;
 }
-
-#endif

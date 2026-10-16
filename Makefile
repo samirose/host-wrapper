@@ -64,8 +64,8 @@ check-posix:
 	./check-posix.sh
 
 # Needs a clang with libFuzzer.
-host-wrapper-fuzzer: host-wrapper.c $(WRAPPER_MODULES) fuzz.c
-	$(CLANG) $(CFLAGS) -DFUZZING -fsanitize=fuzzer,address -o $@ host-wrapper.c fuzz.c $(LDLIBS)
+host-wrapper-fuzzer: fuzz.c $(WRAPPER_MODULES)
+	$(CLANG) $(CFLAGS) -fsanitize=fuzzer,address -o $@ fuzz.c
 
 fuzz: host-wrapper-fuzzer fuzz.dict
 	mkdir -p corpus

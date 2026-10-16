@@ -1,22 +1,25 @@
 #define _POSIX_C_SOURCE 200809L
+#define FUZZING
 #include <stdint.h>
-#include <stddef.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <errno.h>
+#include <ctype.h>
+#include <libgen.h>
+#include <time.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdarg.h>
 
-// A copy of protocol.c's ParserContext, which has to stay in step with it.
-typedef struct {
-    int fd;
-    const unsigned char *buf;
-    size_t size;
-    size_t pos;
-} ParserContext;
-
-// Opaque here: the fuzzer runs without an audit trail.
-typedef struct AuditLog AuditLog;
-
-int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
-                const char *workspace);
+// host-wrapper.c without main, and without pty.c: the fuzzer runs nothing.
+#include "output.c"
+#include "protocol.c"
+#include "audit.c"
+#include "allowlist.c"
+#include "wrapper.c"
 
 int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     if (Size < 2) return 0;

@@ -50,7 +50,6 @@
 #include "pty.c"
 #include "wrapper.c"
 
-#ifndef FUZZING
 /**
  * Reports on an allowlist, serving nothing. Returns 0 for a list the wrapper
  * will start on, or 125 for one it will refuse.
@@ -176,4 +175,3 @@ int main(int argc, char *argv[]) {
     if (write_frame('x', status, (size_t)len) == -1) return EXIT_WRAPPER_ERROR;
     return ret;
 }
-#endif
