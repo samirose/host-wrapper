@@ -5,6 +5,7 @@ Working notes for AI coding agents and contributors in this repository.
 ## Build and test
 
     make                  # build host-wrapper and host-proxy
+    make build/host-proxy.c  # host-proxy as the one file a guest compiles
     make test             # protocol suite (sanitized binaries) + connection suite
     make test-connect     # connection and host key pinning suite only
     make check-posix      # shell portability policy below, no compiler needed

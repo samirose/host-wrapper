@@ -290,7 +290,7 @@ host-wrapper --check "$HOME/.config/host-wrapper/allowlist"
 Because host-proxy runs inside the guest container, it must be compiled for the target container's operating system and processor architecture, as compiling directly on the host OS produces an incompatible executable.
 
 To install host-proxy inside the container:
-1. Compile the source code of `host-proxy.c` inside your guest container using the container's compiler.
+1. Build host-proxy inside the guest from the one file that `make build/host-proxy.c` writes, using the guest's compiler: `cc -O2 -o host-proxy host-proxy.c`.
 2. Copy the contents of `./guest/` into the container next to the compiled binary:
 ```text
 host-proxy-ssh.sh              connection script

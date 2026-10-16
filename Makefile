@@ -14,6 +14,10 @@ TEST_HELPERS = tests/winsize-probe tests/run-on-pty
 # Included by host-wrapper.c, which builds as one translation unit.
 WRAPPER_MODULES = output.c protocol.c audit.c allowlist.c pty.c wrapper.c
 
+# Included by host-proxy.c. A guest compiles build/host-proxy.c, which has them
+# in place of their includes.
+PROXY_MODULES =
+
 all: host-wrapper host-proxy
 
 .PHONY: all test test-connect test-linux check-posix fuzz fuzz-minimize fuzz-proxy fuzz-proxy-minimize clean
@@ -21,14 +25,21 @@ all: host-wrapper host-proxy
 host-wrapper: host-wrapper.c $(WRAPPER_MODULES)
 	$(CC) $(CFLAGS) -o $@ host-wrapper.c $(LDLIBS)
 
-host-proxy: host-proxy.c
+host-proxy: host-proxy.c $(PROXY_MODULES)
 	$(CC) $(CFLAGS) -o $@ host-proxy.c
 
 host-wrapper-test: host-wrapper.c $(WRAPPER_MODULES)
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-wrapper.c $(LDLIBS)
 
-host-proxy-test: host-proxy.c
-	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-proxy.c
+build/host-proxy.c: host-proxy.c $(PROXY_MODULES)
+	mkdir -p build
+	awk '/^#include "/ { f = $$2; gsub(/"/, "", f); while ((getline line < f) > 0) print line; close(f); next } { print }' host-proxy.c > $@.tmp
+	! grep -n '^#include "' $@.tmp
+	mv $@.tmp $@
+
+# Built from what a guest compiles, so a broken amalgamation fails the suite.
+host-proxy-test: build/host-proxy.c
+	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ build/host-proxy.c
 
 tests/winsize-probe: tests/winsize-probe.c
 	$(CC) $(CFLAGS) -o $@ tests/winsize-probe.c $(LDLIBS)
@@ -78,7 +89,7 @@ fuzz-minimize: host-wrapper-fuzzer
 	mv corpus_min corpus
 
 # host-proxy's response decoder, fed its input in reads of varying size
-host-proxy-fuzzer: host-proxy.c fuzz-proxy.c
+host-proxy-fuzzer: build/host-proxy.c fuzz-proxy.c
 	$(CLANG) $(CFLAGS) -fsanitize=fuzzer,address,undefined -o $@ fuzz-proxy.c
 
 fuzz-proxy: host-proxy-fuzzer
@@ -94,5 +105,5 @@ fuzz-proxy-minimize: host-proxy-fuzzer
 clean:
 	rm -f host-wrapper host-proxy host-wrapper-fuzzer host-proxy-fuzzer host-wrapper-test host-proxy-test
 	rm -f $(TEST_HELPERS)
-	rm -rf corpus_min
+	rm -rf build corpus_min
 	rm -f crash-* leak-* timeout-* oom-*

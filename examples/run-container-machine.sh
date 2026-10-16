@@ -74,8 +74,8 @@ echo "[*] Preparing host-proxy files in local directory '$GUEST_SHARE_DIR'..."
 rm -rf "$GUEST_SHARE_DIR"
 mkdir -p "$GUEST_SHARE_DIR/ssh"
 
-cp host-proxy.c "$GUEST_SHARE_DIR/host-proxy.c"
-cp Makefile "$GUEST_SHARE_DIR/Makefile"
+make build/host-proxy.c >/dev/null
+cp build/host-proxy.c "$GUEST_SHARE_DIR/host-proxy.c"
 
 # Run on the host, which knows its login name: inside the VM the guest's own
 # user is root, which is almost never the account to log in as.
@@ -129,7 +129,7 @@ container machine run -n "$CONTAINER_MACHINE_NAME" mkdir -p /tmp/app </dev/null
 tar -C "$GUEST_SHARE_DIR" -cf - . | container machine run -i -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- tar -xf -
 
 echo "[*] Compiling host-proxy..."
-container machine run -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- make host-proxy </dev/null
+container machine run -n "$CONTAINER_MACHINE_NAME" --cwd /tmp/app -- cc -O2 -o host-proxy host-proxy.c </dev/null
 
 # Its own script, so it can be re-run against a machine already up.
 if ! ./examples/test-container-machine.sh "$CONTAINER_MACHINE_NAME"; then

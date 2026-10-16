@@ -1,5 +1,5 @@
 #define FUZZING
-#include "host-proxy.c"
+#include "build/host-proxy.c"
 
 #include <stdint.h>
 
