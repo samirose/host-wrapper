@@ -167,7 +167,7 @@ static int read_response(int fd) {
         ssize_t n = read(fd, buf, sizeof(buf));
         if (n < 0 && errno == EINTR) continue;
         if (n < 0) {
-            perror("read response");
+            log_error("read response: %s\n", strerror(errno));
             return EXIT_PROXY_ERROR;
         }
         if (n == 0) break;
@@ -175,16 +175,16 @@ static int read_response(int fd) {
         if (decoded == -2) {
             // As a process writing into a closed pipe would end by default.
             if (errno == EPIPE) return 128 + SIGPIPE;
-            perror("write");
+            log_error("write: %s\n", strerror(errno));
             return EXIT_PROXY_ERROR;
         }
         if (decoded == -1) {
-            fprintf(stderr, "Error: malformed response from host-wrapper\n");
+            log_error("Error: malformed response from host-wrapper\n");
             return EXIT_PROXY_ERROR;
         }
     }
     if (d.state != FRAME_DONE) {
-        fprintf(stderr, "Error: transport failed before the command reported status\n");
+        log_error("Error: transport failed before the command reported status\n");
         return EXIT_PROXY_ERROR;
     }
     return d.exit_status;
@@ -197,7 +197,7 @@ static int read_response(int fd) {
  */
 void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
     if (dup2(request_fd, STDIN_FILENO) == -1 || dup2(response_fd, STDOUT_FILENO) == -1) {
-        perror("dup2");
+        log_error("dup2: %s\n", strerror(errno));
         exit(EXIT_PROXY_ERROR);
     }
     close(request_fd);
@@ -217,7 +217,7 @@ void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
     };
 
     execvp(script_argv[0], script_argv);
-    fprintf(stderr, "execvp failed for %s: %s\n", script_path, strerror(errno));
+    log_error("execvp failed for %s: %s\n", script_path, strerror(errno));
     exit(EXIT_PROXY_ERROR);
 }
 
@@ -288,7 +288,7 @@ int execute_proxy_parent(int request_fd, int response_fd, pid_t child_pid,
     pid_t pump_pid = -1;
     if (send_request(request_fd, argc, argv) == 0) {
         pump_pid = fork();
-        if (pump_pid == -1) perror("fork pump");
+        if (pump_pid == -1) log_error("fork pump: %s\n", strerror(errno));
         if (pump_pid == 0) {
             close(response_fd);
             execute_stdin_pump(request_fd);
@@ -309,7 +309,7 @@ int execute_proxy_parent(int request_fd, int response_fd, pid_t child_pid,
     pid_t waited;
     while ((waited = waitpid(child_pid, NULL, 0)) == -1 && errno == EINTR) {}
     if (waited == -1) {
-        perror("waitpid");
+        log_error("waitpid: %s\n", strerror(errno));
         return EXIT_PROXY_ERROR;
     }
     return result;
@@ -327,25 +327,25 @@ int main(int argc, char *argv[]) {
 
     argv0_copy = strdup(argv[0]);
     if (!argv0_copy) {
-        perror("strdup");
+        log_error("strdup: %s\n", strerror(errno));
         goto cleanup;
     }
     proxy_dir = strdup(dirname(argv0_copy));
     if (!proxy_dir) {
-        perror("strdup proxy_dir");
+        log_error("strdup proxy_dir: %s\n", strerror(errno));
         goto cleanup;
     }
 
     int request_fds[2];
     int response_fds[2];
     if (pipe(request_fds) == -1 || pipe(response_fds) == -1) {
-        perror("pipe");
+        log_error("pipe: %s\n", strerror(errno));
         goto cleanup;
     }
 
     pid_t pid = fork();
     if (pid == -1) {
-        perror("fork");
+        log_error("fork: %s\n", strerror(errno));
         goto cleanup;
     }
 
