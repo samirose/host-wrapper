@@ -8,7 +8,6 @@
 #
 # Usage: bash examples/test-container-machine.sh [machine-name]
 
-# Ensure the script is run from the project root
 if [ ! -f "host-wrapper.c" ]; then
     echo "Error: Please run this script from the project root directory:"
     echo "  bash examples/$(basename "$0")"
@@ -19,9 +18,7 @@ fi
 
 CONTAINER_MACHINE_NAME="${1:-example-container-machine}"
 
-# The log this example writes, beside its own allowlist. Deliberately not the
-# one belonging to a generic setup.sh install: that one is a different example's
-# evidence and says nothing about this run.
+# This example's own log, beside its allowlist, not the one setup.sh configures.
 AUDIT_LOG="./examples/audit.log"
 
 echo "=================================================="

@@ -1,20 +1,17 @@
 #!/bin/sh
 
-# Configuration for Apple Container Machine Setup
 ALLOWLIST_DIR="examples/config"
 ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
 SSH_KEY_DIR="./examples/ssh"
 SSH_KEY_FILE="$SSH_KEY_DIR/id_ed25519_container-machine"
 CONTAINER_MACHINE_NAME="example-container-machine"
 
-# Ensure running from project root
 if [ ! -f "host-wrapper.c" ]; then
     echo "Error: Please run this script from the project root directory:"
     echo "  sh examples/$(basename "$0")"
     exit 1
 fi
 
-# Ensure directories exist
 mkdir -p "$ALLOWLIST_DIR"
 mkdir -p "$SSH_KEY_DIR"
 
@@ -22,7 +19,6 @@ echo "========================================================"
 echo "Initializing Secure Apple Container Machine Integration"
 echo "========================================================"
 
-# 1. Create a sample allowlist if not already present
 if [ ! -f "$ALLOWLIST_FILE" ]; then
     echo "[*] Creating sample allowlist at $ALLOWLIST_FILE..."
     cat <<EOF > "$ALLOWLIST_FILE"
@@ -33,17 +29,12 @@ if [ ! -f "$ALLOWLIST_FILE" ]; then
 EOF
 fi
 
-# 2. Generate restricted SSH key pair for the Container Machine (if not exists)
 if [ ! -f "$SSH_KEY_FILE" ]; then
     echo "[*] Generating dedicated SSH key at $SSH_KEY_FILE..."
     ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "example-container-machine.key"
     chmod 600 "$SSH_KEY_FILE"
 fi
 
-# 3. Generate the connection script, pin the host key, and record the host
-#    login user. The VM's gateway address is resolved from its default route
-#    at connection time, since it depends on the networks configured for the
-#    host system rather than being a fixed value.
 echo "[*] Generating connection assets in ./examples..."
 sh ./host-connect-setup.sh ./examples \
     --key "$(basename "$SSH_KEY_FILE")" || exit 1

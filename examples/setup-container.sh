@@ -1,20 +1,17 @@
 #!/bin/sh
 
-# Configuration for container host-proxy setup
 ALLOWLIST_DIR="examples/config"
 ALLOWLIST_FILE="$ALLOWLIST_DIR/allowlist"
 CONTAINER_PROJECT_DIR="./examples/container_project"
 SSH_KEY_DIR="$CONTAINER_PROJECT_DIR/ssh"
 SSH_KEY_FILE="$SSH_KEY_DIR/id_ed25519_container"
 
-# Ensure running from project root
 if [ ! -f "host-wrapper.c" ]; then
     echo "Error: Please run this script from the project root directory:"
     echo "  sh examples/$(basename "$0")"
     exit 1
 fi
 
-# Ensure directories exist
 mkdir -p "$ALLOWLIST_DIR"
 mkdir -p "$SSH_KEY_DIR"
 
@@ -22,7 +19,6 @@ echo "========================================="
 echo "Initializing container for host-proxy use"
 echo "========================================="
 
-# 1. Create isolated example allowlist
 if [ ! -f "$ALLOWLIST_FILE" ]; then
     echo "[*] Creating example allowlist at $ALLOWLIST_FILE..."
     cat <<EOF > "$ALLOWLIST_FILE"
@@ -33,17 +29,12 @@ if [ ! -f "$ALLOWLIST_FILE" ]; then
 EOF
 fi
 
-# 2. Generate dedicated key pair
 if [ ! -f "$SSH_KEY_FILE" ]; then
     echo "[*] Generating dedicated container SSH key at \$SSH_KEY_FILE..."
     ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "example-container.key"
     chmod 600 "$SSH_KEY_FILE"
 fi
 
-# 3. Generate the connection script, pin the host key, and record the host
-#    login user. The gateway address is deliberately left out: it depends on
-#    the networks configured for the host system, so the guest resolves it
-#    from its own default route at connection time.
 echo "[*] Generating connection assets in $CONTAINER_PROJECT_DIR..."
 sh ./host-connect-setup.sh "$CONTAINER_PROJECT_DIR" \
     --key "$(basename "$SSH_KEY_FILE")" || exit 1

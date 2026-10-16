@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 
-# Safety check: Ensure the script is run from the project root
 if [ ! -f "host-wrapper.c" ]; then
     echo "Error: Please run this script from the project root directory:"
     echo "  bash examples/run-container.sh"
     exit 1
 fi
 
-# Configuration
 HOST_PROJECT_DIR=$(pwd)
 CONTAINER_PROJECT_DIR="./examples/container_project"
 PROJECT_NAME="${PROJECT_NAME:-example-container}"
@@ -15,7 +13,6 @@ IMAGE_NAME="$PROJECT_NAME:latest"
 BUILDER_IMAGE="ghcr.io/nixos/nix"
 NETWORK_NAME="host-wrapper-net"
 
-# 1. Ensure basic keys and scripts are initialized
 SSH_KEY_FILE="$CONTAINER_PROJECT_DIR/ssh/id_ed25519_container"
 SSH_CONNECT_SCRIPT="$CONTAINER_PROJECT_DIR/host-proxy-ssh.sh"
 
@@ -30,20 +27,17 @@ fi
 ./host-connect-setup.sh "$CONTAINER_PROJECT_DIR" \
   --key "$(basename "$SSH_KEY_FILE")" >/dev/null
 
-# Ensure isolated network exists
 if ! container network list | grep -q "$NETWORK_NAME"; then
     echo "Creating isolated network $NETWORK_NAME..."
     container network create "$NETWORK_NAME"
 fi
 
-# Reset container image option
 if [[ "$1" == "--reset" ]]; then
     echo "Removing container image $IMAGE_NAME..."
     container image rm "$IMAGE_NAME" 2>/dev/null || true
     exit 0
 fi
 
-# Build or rebuild container image if missing or requested
 if [[ "$1" == "--rebuild" ]] || ! container image list | grep -q "$PROJECT_NAME"; then
     echo "[*] Building OCI image using Nix..."
     ARCHIVE_PATH="$CONTAINER_PROJECT_DIR/$PROJECT_NAME.tar"
@@ -67,7 +61,6 @@ if [[ "$1" == "--rebuild" ]] || ! container image list | grep -q "$PROJECT_NAME"
     [[ "$1" == "--rebuild" ]] && exit 0
 fi
 
-# Start a development shell in the container instantly
 container run -it --rm \
   --name "$PROJECT_NAME-$(date +%s)" \
   --network "$NETWORK_NAME" \
