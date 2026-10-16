@@ -178,6 +178,9 @@ reader arriving today should not have to parse what it used to do.
   what documents the code you changed: the README sections, `PROTOCOL.md`,
   `docs/`, the usage text and the comments on and around it. Fix what no
   longer holds in the same commit, so no commit leaves a description false.
+- **Nothing outside this file refers to it.** Code, comments, scripts' output
+  and the documentation stand on their own. Where one of them needs a fact
+  this file records, write the fact there as well.
 - **Do not justify a design by contrasting it with what it replaced.** Write
   "fails with a diagnostic naming the override", not "fails rather than falling
   back to a default that produced a timeout somewhere else". The reason

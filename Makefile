@@ -64,7 +64,7 @@ test-linux:
 	        export NIX_CONFIG="experimental-features = nix-command flakes"; \
 	        nix develop --command make clean test'
 
-# Shell portability policy from AGENTS.md. Every /bin/sh script, and the guest
+# Shell portability policy. Every /bin/sh script, and the guest
 # connection script that host-connect-setup.sh generates, has to run under a
 # strict POSIX shell, because the guest's /bin/sh is often busybox ash. Needs no
 # compiler; skips the shell-dependent checks if neither dash nor ash is present.

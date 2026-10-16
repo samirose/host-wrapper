@@ -36,7 +36,7 @@ for f in ./*.sh ./examples/*.sh ./examples/wrappers/*.sh ./share/*.sh; do
     sh_files="$sh_files $f"
 done
 
-printf 'Checking shell portability policy (AGENTS.md)\n'
+printf 'Checking shell portability policy\n'
 
 if [ -n "$POSIX_SH" ]; then
     printf '  POSIX shell: %s\n' "$POSIX_SH"
