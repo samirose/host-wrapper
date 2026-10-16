@@ -2,10 +2,8 @@
 #
 # Reporting and assertion helpers shared by test.sh and test-connect.sh.
 #
-# Sourced, never executed. The shebang is here so check-posix.sh picks the file
-# up by its first line and holds it to the POSIX shell language, which it has to
-# be: check-posix.sh runs test-connect.sh under dash, and whatever that suite
-# sources runs under dash with it.
+# Sourced, never executed. The shebang puts it under check-posix.sh, which runs
+# test-connect.sh, and so this file, under dash.
 #
 # A suite is expected to call make_test_dir first, report results through
 # report() or the assert_* helpers, and end with test_summary.
@@ -19,8 +17,7 @@ fail_count=0
 
 # make_test_dir <prefix>
 #
-# Create a scratch directory, publish it as $TEST_DIR and arrange for it to be
-# removed on exit, so a run leaves nothing behind in the repository.
+# Create a scratch directory as $TEST_DIR, removed on exit.
 make_test_dir() {
     TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/$1.XXXXXX")
     if [ -z "$TEST_DIR" ] || [ ! -d "$TEST_DIR" ]; then
@@ -83,8 +80,7 @@ assert_equals() {
     fi
 }
 
-# Print the tally. Returns non-zero if anything failed, so a suite can end with
-# a bare call to it and exit with the right status.
+# Print the tally. Returns non-zero if anything failed.
 test_summary() {
     printf -- '----------------------------------------\n'
     printf 'Results: %s passed, %s failed\n' "$pass_count" "$fail_count"

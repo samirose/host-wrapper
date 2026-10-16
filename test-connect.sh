@@ -3,10 +3,9 @@
 # Test suite for host-connect-setup.sh and the connection script it generates,
 # and for the authorized_keys line host-authorized-key.sh prints.
 #
-# The connection script is the only part of the system that decides *where* to
-# connect and *whether to trust* what answers, so it is exercised directly:
-# stub `ip` and `ssh` binaries are placed ahead of the real ones on PATH, the
-# script is run, and the argument vector the stub `ssh` receives is asserted on.
+# The connection script decides where to connect and whether to trust what
+# answers, so it runs against stub `ip` and `ssh` placed ahead of the real ones
+# on PATH, and the suite asserts on the argument vector the stub `ssh` receives.
 
 . "$(dirname "$0")/test-lib.sh"
 
@@ -165,8 +164,7 @@ assert_equals "Gateway tracks a different subnet" \
     "$(destination "$(run_connect "$GUEST" "$OTHER_ROUTE")")" \
     "hostuser@10.88.0.1"
 
-# Regression: matching every line containing "default" and printing $3 emits
-# one address per route, producing a mangled "A B" destination.
+# One address per default route would make a mangled "A B" destination.
 TWO_ROUTES="default via 10.88.0.1 dev eth0 metric 100
 default via 172.17.0.1 dev eth1 metric 200
 "
@@ -182,8 +180,8 @@ assert_equals "Gatewayless default route is skipped" \
     "$(destination "$(run_connect "$GUEST" "$NO_VIA_FIRST")")" \
     "hostuser@192.168.64.1"
 
-# Regression: an unanchored /default/ match also fires on routes that merely
-# mention the word, such as an entry in the routing table named "default".
+# A route merely mentioning the word, such as one in a table named "default",
+# is not a default route.
 NOISY="192.168.1.0/24 dev eth0 proto kernel scope link table default
 default via 192.168.64.1 dev eth0
 "
@@ -222,8 +220,7 @@ assert_equals "Environment user overrides the provisioned one" \
 # Failure reporting
 # ---------------------------------------------------------------------------
 
-# Falling back to a hardcoded address here is what produced the original bug:
-# the connection appears configured and then times out somewhere else.
+# A guessed address would look configured and then time out somewhere else.
 NO_ROUTE_OUT=$(run_connect "$GUEST" "")
 NO_ROUTE_CODE=$?
 

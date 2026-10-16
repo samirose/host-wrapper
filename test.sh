@@ -1,23 +1,17 @@
 #!/bin/sh
 
-# Test Suite for Host-Container Command Proxy
-# This script tests the logic and protocol of host-proxy and host-wrapper 
-# locally without requiring a full SSH setup.
+# The protocol suite: host-proxy and host-wrapper end to end, with a stub
+# connector in place of ssh.
 
 . "$(dirname "$0")/test-lib.sh"
 
-# Ensure binaries are provided or use defaults
 HOST_PROXY="${HOST_PROXY:-./host-proxy}"
 HOST_WRAPPER="${HOST_WRAPPER:-./host-wrapper}"
 
-# Setup isolated environment
 make_test_dir host-wrapper-protocol
 cp "$HOST_PROXY" "$TEST_DIR/host-proxy"
 cp "$HOST_WRAPPER" "$TEST_DIR/host-wrapper"
 
-# Compiled by `make test`. winsize-probe is a target the wrapper runs; run-on-pty
-# is the harness that puts a terminal on a stream of host-proxy's, which a suite
-# written in shell has no other way to do.
 TEST_HELPER_DIR="${TEST_HELPER_DIR:-$(dirname "$0")/tests}"
 for helper in winsize-probe run-on-pty; do
     if [ ! -x "$TEST_HELPER_DIR/$helper" ]; then
@@ -34,15 +28,12 @@ for wrapper in git-sign.sh cc.sh; do
     cp "$(dirname "$0")/examples/wrappers/$wrapper" "$TEST_DIR/wrappers/" || exit 1
 done
 
-# Move into isolated directory to prevent touching repo files
 cd "$TEST_DIR" || exit 1
 
 ALLOWLIST="./allowlist"
-# Named explicitly, as the forced command names it: the trail belongs outside
-# the directory the target runs in, and here that keeps it out of the
-# workspace the scenarios inspect.
+# Named, as the forced command names it, to keep it out of the workspace the
+# scenarios inspect.
 AUDIT_LOG="./audit.log"
-# Use localized paths within the isolated directory
 LOCAL_HOST_PROXY="./host-proxy"
 LOCAL_HOST_WRAPPER="./host-wrapper"
 # What host-proxy sends ahead of argv without a terminal: the protocol magic,
@@ -84,7 +75,6 @@ PWD_BIN=$(find_bin pwd)
 LS_BIN=$(find_bin ls)
 UNAME_OUT=$(uname -s)
 
-# 1. Create a dummy allowlist with safe, benign commands
 cat <<EOF > "$ALLOWLIST"
 $UNAME_BIN
 $PRINTF_BIN
@@ -93,22 +83,17 @@ $CAT_BIN +stdin
 $TEST_DIR/winsize-probe
 EOF
 
-# 2. Create a stub SSH script that pipes directly to host-wrapper.
-# This intercepts the connection from host-proxy and routes it locally.
+# The connector: host-wrapper itself, in place of ssh.
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
 exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 EOF
 chmod +x "host-proxy-ssh.sh"
 
-# Where the runners below put each stream. Kept apart rather than merged with
-# 2>&1, so a message arriving on the wrong stream is a failure the suite can
-# see.
 CAPTURE_OUT="./capture-stdout"
 CAPTURE_ERR="./capture-stderr"
 
-# Internal base function for all tests
-# Usage: _run_test_base <name> <expected_exit> <stream> <expected_out> <stdin_data> <cmd...>
+# _run_test_base <name> <expected_exit> <stream> <expected_out> <stdin_data> <cmd...>
 #
 # expected_exit: "zero" or an exact status such as 126.
 # stream:        "out", "err" or "both" -- which capture expected_out has to
@@ -171,8 +156,7 @@ $actual_err" ;;
     fi
 }
 
-# Public test runners. Shifting the name off leaves the remaining arguments in
-# the order _run_test_base wants them, which POSIX has no ${@:4} for.
+# run_test <name> <expected_out> <stdin_data> <cmd...>
 run_test() {
     _name="$1"
     shift
@@ -186,41 +170,31 @@ run_test_exit() {
     _run_test_base "$_name" "$_code" err "$@"
 }
 
-# Scenario 1: Basic command execution
 run_test "Basic execution (uname)" "$UNAME_OUT" "" "$LOCAL_HOST_PROXY" "$UNAME_BIN"
 
-# Scenario 2: Argument with spaces
 run_test "Spaces in args" "[hello space]" "" "$LOCAL_HOST_PROXY" "$PRINTF_BIN" "[%s]\n" "hello space"
 
-# Scenario 3: Stdin forwarding (using wc -c to count bytes)
 run_test "Stdin piping (wc)" "12" "hello stream" "$LOCAL_HOST_PROXY" "$WC_BIN" -c
 
-# Scenario 4: Command NOT in allowlist
 run_test_exit "Blocked command" 126 "Error: Command '$ID_BIN' not in allowlist" "" "$LOCAL_HOST_PROXY" "$ID_BIN"
 
-# Scenario 5: Multiple arguments
 run_test "Multi-args" "arg1-arg2" "" "$LOCAL_HOST_PROXY" "$PRINTF_BIN" "%s-%s\n" arg1 arg2
 
-# Scenario 5.5: Exit code propagation
-# false always exits with 1. We must add it to the allowlist first.
 echo "$FALSE_BIN" >> "$ALLOWLIST"
 run_test_exit "Exit code propagation" 1 "" "" "$LOCAL_HOST_PROXY" "$FALSE_BIN"
 
-# Scenario 6: Malformed header
 run_test_exit "Malformed header" 125 "Error: Malformed netstring" "malformed" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
-# Scenario 7: Header length too long (exceeds MAX_ARG_LEN of 65536)
 run_test_exit "Header too long limit" 125 "Error: Argument too long (999999 bytes)" "999999:toobig," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
-# Scenario 8: Header digits exceed buffer (more than 15 digits)
 run_test_exit "Header digits overflow" 125 "Error: Netstring length too long" "12345678901234567890:toobig," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
-# Scenario 8.0.1: A length has one spelling; "03:HW1," is not "3:HW1,". An
+# A length has one spelling; "03:HW1," is not "3:HW1,". An
 # empty netstring is still "0:,".
 run_test_exit "Leading zero in length" 125 "Error: Netstring length has a leading zero" "03:HW1,0:,1:1,${#UNAME_BIN}:$UNAME_BIN," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
-# Scenario 8.1: The header is versioned and its options are keyed. Anything the
-# wrapper does not understand refuses the request rather than being skipped.
+# The header is versioned and its options are keyed. Anything the wrapper does
+# not understand refuses the request rather than being skipped.
 UNAME_ARGV="1:1,${#UNAME_BIN}:$UNAME_BIN,"
 run_test_exit "Unversioned header" 125 "Error: protocol version mismatch: rebuild host-proxy" "5:80,24,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Unknown header option" 125 "Error: Unknown header option 'term'" "3:HW1,10:term=xterm,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
@@ -235,23 +209,18 @@ printf "3:HW1,8:cols=8\\0000,0:,%s" "$UNAME_ARGV" |
     "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST" >"$CAPTURE_OUT" 2>"$CAPTURE_ERR"
 assert_equals "NUL inside a header option" "$?:$(cat "$CAPTURE_ERR")" "125:Error: Malformed header option"
 
-# Scenario 9: Verify no-hang when host command finishes but stdin is still open
+# The command finishes while stdin is still open and idle.
 FIFO="./test_fifo"
 mkfifo "$FIFO"
 
-# Open the FIFO for writing in a background subshell to unblock the reader,
-# but don't actually write anything yet. This simulates an "open but idle" stdin.
 ( exec 3> "$FIFO"; sleep 2 ) &
 WRITER_PID=$!
 
-# Start host-proxy in background reading from FIFO
 $LOCAL_HOST_PROXY "$UNAME_BIN" < "$FIFO" > "no_hang_out" 2>&1 &
 PROXY_PID=$!
 
-# Wait a short moment to see if it exits (uname should be instant)
 sleep 0.5
 if ! kill -0 $PROXY_PID 2>/dev/null; then
-    # Process is gone, check output
     if grep -q "$UNAME_OUT" "no_hang_out"; then
         report "No-hang on open stdin" yes
     else
@@ -263,20 +232,17 @@ else
     report "No-hang on open stdin" no "  Still running: an open stdin kept the proxy alive"
 fi
 
-# Cleanup FIFO
 kill $WRITER_PID 2>/dev/null
 wait $WRITER_PID 2>/dev/null
 rm "$FIFO"
 
-# Scenario 10: SIGPIPE resilience in parent
-# We simulate a wrapper crash by temporarily bypassing the real wrapper and 
-# piping directly into a process that instantly exits.
+# A connector that exits without reading the request.
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
 exit 1
 EOF
 
-# Generate 1000 arguments to ensure the parent writes enough data to hit the broken pipe.
+# About 1 MB of request, well past what a pipe buffers.
 LONG_ARG=$(printf '%1000s' '' | tr ' ' 'A')
 ARGS=""
 i=0
@@ -288,23 +254,17 @@ done
 # The proxy reports the undelivered request as its own failure, not SIGPIPE's 141.
 run_test_exit "SIGPIPE resilience" 125 "" "" "$LOCAL_HOST_PROXY" "$LS_BIN" $ARGS
 
-# Scenario 11: Invalid argc (0 or negative)
 run_test_exit "Invalid argc (0)" 125 "Error: Invalid target argc (0)" "${HEADER}1:0," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
-# Scenario 12: argc too large
 run_test_exit "Argc too large" 125 "Error: Invalid target argc (1025)" "${HEADER}4:1025," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
-# Scenario 13: Partial match in allowlist (prefix/suffix)
-# A prefix of an allowlisted path must not match it.
 UNAME_PREFIX=${UNAME_BIN%??}
 run_test_exit "Allowlist prefix match" 126 "Error: Command '$UNAME_PREFIX' not in allowlist" "${HEADER}1:1,${#UNAME_PREFIX}:$UNAME_PREFIX," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
-# Scenario 14: Premature EOF in netstring data
-# Header says 1 byte, but we send '1' and then close without the comma.
 run_test_exit "Premature EOF" 125 "Error: Malformed netstring (expected ',')" "2:1,1:1" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
-# Scenario 15: Extremely long allowlist line (testing getline)
-# Use OS max path limit divided into valid NAME_MAX chunks, plus a long comment
+# An allowlist line longer than any fixed buffer: a path near PATH_MAX, in
+# components no longer than NAME_MAX, then a long comment.
 SYS_MAX=$(getconf PATH_MAX / 2>/dev/null || echo 1024)
 TARGET_LEN=$((SYS_MAX - 50))
 CHUNK=$(printf '%200s' '' | tr ' ' 'A')
@@ -313,7 +273,6 @@ LONG_PATH="/usr/bin"
 while [ ${#LONG_PATH} -lt $TARGET_LEN ]; do
     LONG_PATH="$LONG_PATH/$CHUNK"
 done
-# Trim to exact length just to be clean
 LONG_PATH=$(printf '%s' "$LONG_PATH" | cut -c "1-$TARGET_LEN")
 
 LONG_COMMENT=$(printf '%2000s' '' | tr ' ' 'C')
@@ -321,16 +280,12 @@ echo "$LONG_PATH # $LONG_COMMENT" >> "$ALLOWLIST"
 # The child reports a failed exec on the target's stderr, which arrives framed.
 _run_test_base "Long allowlist line match" 127 out "2execv: No such file or directory" "${HEADER}1:1,${#LONG_PATH}:$LONG_PATH," "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
-# Scenario 17: Context-aware Working Directory (chdir)
-# Create a subdirectory, move allowlist there, and verify 'pwd' starts in that directory
 mkdir -p ./subdir
 SUB_ALLOWLIST="./subdir/allowlist"
 cat <<EOF > "$SUB_ALLOWLIST"
 $PWD_BIN
 EOF
 
-# Run host-wrapper with the subdirectory allowlist. 
-# It should chdir into ./subdir before executing pwd.
 ACTUAL_PWD=$("$(pwd)/host-wrapper" "$SUB_ALLOWLIST" <<EOF 2>&1
 ${HEADER}1:1,${#PWD_BIN}:$PWD_BIN,
 EOF
@@ -338,22 +293,18 @@ EOF
 
 assert_contains "Context-aware Working Directory (chdir)" "$ACTUAL_PWD" "/subdir"
 
-# Scenario 18: Verify stdout/stderr separation
-# Restore the real ssh shim
+# Restore the connector.
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
 exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 EOF
 chmod +x "host-proxy-ssh.sh"
 
-# Add sh to the allowlist for this test
 echo "$SH_BIN" >> "$ALLOWLIST"
 
 OUT_FILE="./stdout_capture"
 ERR_FILE="./stderr_capture"
 
-# Run a command that writes to both streams
-# Note: we use sh -c '...' to produce distinct output
 "$LOCAL_HOST_PROXY" "$SH_BIN" -c 'echo "OUT_DATA"; echo "ERR_DATA" >&2' > "$OUT_FILE" 2> "$ERR_FILE"
 
 OUT_VAL=$(cat "$OUT_FILE")
@@ -366,7 +317,7 @@ else
   Expected stderr: ERR_DATA, Actual: $ERR_VAL"
 fi
 
-# Scenario 18.1: Writes to the two streams keep their order once the target
+# Writes to the two streams keep their order once the target
 # pauses between them. Back-to-back writes to both may arrive in either order:
 # they come off two pseudo-terminals.
 ALTERNATE='echo OUT1; sleep 0.2; echo ERR1 >&2; sleep 0.2; echo OUT2; sleep 0.2; echo ERR2 >&2'
@@ -380,22 +331,17 @@ assert_equals "Alternating streams stay separate" "$(cat "$OUT_FILE")/$(cat "$ER
 OUT2/ERR1
 ERR2"
 
-# Scenario 19: Verify +stdin restriction
-# Verify that a command without +stdin receives 0 bytes (EOF)
-# We add wc (without +stdin) to a temporary allowlist, set up a stub ssh, and run it
 TEMP_ALLOWLIST="./temp_allowlist"
 cat <<EOF > "$TEMP_ALLOWLIST"
 $WC_BIN
 EOF
 
-# Point our ssh stub to the wrapper using the temp allowlist
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
 exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$TEMP_ALLOWLIST"
 EOF
 
 ACTUAL_OUT=$(printf '%s' "hello stream" | "$LOCAL_HOST_PROXY" "$WC_BIN" -c 2>&1)
-# Because wc lacks +stdin, it should receive EOF and print 0
 case "$ACTUAL_OUT" in
     *12*) report "Stdin restriction (no +stdin option)" no \
         "  wc -c saw the stdin data, so +stdin was not required
@@ -406,16 +352,14 @@ case "$ACTUAL_OUT" in
   Actual Output: $ACTUAL_OUT" ;;
 esac
 
-# Restore the original allowlist and stub ssh
+# Restore the connector.
 cat <<EOF > "host-proxy-ssh.sh"
 #!/bin/sh
 exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 EOF
 
-# Scenario 20: Large output integrity
-# 256 KB round-tripped through the wrapper, compared by size and checksum. A
-# substring match cannot see a discarded tail, which is what the PTY poll loop
-# is suspected of producing.
+# Compared by size and checksum: a substring match cannot see a discarded
+# tail.
 LARGE_IN="./large-in"
 LARGE_OUT="./large-out"
 awk 'BEGIN {
@@ -441,20 +385,15 @@ else
   stderr:    $(cat "$CAPTURE_ERR")"
 fi
 
-# Scenario 21: Window size with stdin redirected
-# The size has to come off stdout or stderr once stdin is not a terminal, which
-# is the ordinary case for a piped or redirected invocation. run-on-pty gives
-# host-proxy a 120x40 terminal on stdout and stderr and relays what comes back.
+# run-on-pty puts a 120x40 terminal on host-proxy's stdout and stderr only.
 WINSIZE_OUT=$(./run-on-pty 120 40 "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe" \
     < "$LARGE_IN" 2> "$CAPTURE_ERR")
 assert_equals "Window size survives a redirected stdin" "$WINSIZE_OUT" "120,40"
 
-# Scenario 22: Window size with no terminal on any stream
 "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe" \
     < /dev/null > "$CAPTURE_OUT" 2> "$CAPTURE_ERR"
 assert_equals "Window size defaults without a terminal" "$(cat "$CAPTURE_OUT")" "80,24"
 
-# Scenario 23: Allowlisted but missing
 # Exactly one diagnostic: a child that unwound through main would repeat
 # whatever was buffered at the fork.
 MISSING_BIN="$TEST_DIR/no-such-tool"
@@ -462,15 +401,12 @@ echo "$MISSING_BIN" >> "$ALLOWLIST"
 run_test_exit "Exec failure exits 127" 127 "execv: No such file or directory" "" "$LOCAL_HOST_PROXY" "$MISSING_BIN"
 assert_equals "Exec failure reported once" "$(grep -c 'execv:' "$CAPTURE_ERR")" "1"
 
-# Scenario 24: Target killed by a signal
 run_test_exit "Signal exits 128+n" 143 "" "" "$LOCAL_HOST_PROXY" "$SH_BIN" -c 'kill -TERM $$'
 
-# Scenario 25: Unreadable allowlist
 run_test_exit "Missing allowlist exits 125" 125 "fopen allowlist:" "" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" ./no-such-allowlist
 
-# Scenario 26: Commands named relative to the allowlist directory
-# The entry and the request resolve against the same directory, so a project
-# can keep its tools beside its allowlist and name neither absolutely.
+# The entry and the request resolve against the allowlist directory, so a
+# project can keep its tools beside its allowlist.
 cat <<'EOF' > "./tool.sh"
 #!/bin/sh
 printf 'tool ran in %s\n' "$(pwd)"
@@ -485,10 +421,8 @@ WORKSPACE=$(pwd -P)
 run_test "Absolute request meets a relative entry" "tool ran in" "" \
     "$LOCAL_HOST_PROXY" "$WORKSPACE/tool.sh"
 
-# Scenario 27: Names that resolve to no single file
-# Both are denied by the resolution rule rather than by the lookup, which is
-# what the diagnostic distinguishes: the unwound form names an allowlisted
-# file, and a bare name is one PATH lookup away from one.
+# Denied by the resolution rule, not by the lookup: the unwound form names an
+# allowlisted file, and a bare name is one PATH lookup away from one.
 UNAME_DIR=${UNAME_BIN%/*}
 UNWOUND_UNAME="$UNAME_DIR/../${UNAME_DIR##*/}/${UNAME_BIN##*/}"
 run_test_exit "Bare command name denied" 126 \
@@ -525,10 +459,7 @@ run_test_exit "Unknown allowlist option refused" 125 \
     "${HEADER}1:1,${#UNAME_BIN}:$UNAME_BIN," \
     "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$UNKNOWN_OPTION_ALLOWLIST"
 
-# Scenario 27.5: --check reports on a list without serving anything
-# The same two refusals as above, reached with no request on stdin and no audit
-# log named: a misconfigured list is answered for at the host, before a guest
-# depends on it.
+# --check: the same two refusals, with no request and no audit log.
 ENTRY_COUNT=$(grep -cE '^[[:space:]]*[^[:space:]#]' "$ALLOWLIST")
 run_test "Check accepts a usable allowlist" \
     "$ALLOWLIST: $ENTRY_COUNT entries, no problems found" "" \
@@ -542,9 +473,7 @@ run_test_exit "Check refuses an unknown option" 125 \
 run_test_exit "Check without a list names the usage" 125 "--check <allowlist_path>" "" \
     "$LOCAL_HOST_WRAPPER" --check
 
-# Scenario 28: The audit trail
-# A denial is as accountable as a run, so both outcomes are asserted, and on
-# the entries these two requests added rather than on the file existing.
+# Asserted on the entries these two requests added, not on the file existing.
 "$LOCAL_HOST_PROXY" "$PRINTF_BIN" audited </dev/null >/dev/null 2>&1
 "$LOCAL_HOST_PROXY" "$ID_BIN" </dev/null >/dev/null 2>&1
 AUDIT_TAIL=$(tail -n 2 "$AUDIT_LOG" 2>/dev/null)
@@ -553,9 +482,8 @@ assert_contains "Audit records an allowed command" \
 assert_contains "Audit records a denied command" \
     "$AUDIT_TAIL" "[DENIED ] [-] [-] $ID_BIN"
 
-# Where the trail goes when the forced command does not name one. Both
-# directories are inside the scratch directory, so the suite never writes to
-# the state directory of whoever is running it.
+# The default trail. Both directories are inside the scratch directory, so the
+# suite never writes to the state directory of whoever runs it.
 DEFAULT_ALLOWLIST="./default-allowlist"
 printf '%s\n' "$UNAME_BIN" > "$DEFAULT_ALLOWLIST"
 UNAME_REQUEST="${HEADER}1:1,${#UNAME_BIN}:$UNAME_BIN,"
@@ -576,8 +504,8 @@ run_test_exit "No state directory names the option" 125 \
     "name one with -l" "$UNAME_REQUEST" \
     env -u XDG_STATE_HOME -u HOME "$LOCAL_HOST_WRAPPER" "$DEFAULT_ALLOWLIST"
 
-# An argument is data, not a line. A newline in one would otherwise append an
-# entry of the guest's own wording, which is the trail losing its point.
+# A newline in an argument would otherwise append an entry of the guest's own
+# wording.
 FORGED='x
 [2020-01-01 00:00:00] [ALLOWED] [admin] [-] /bin/sh'
 AUDIT_BEFORE=$(wc -l < "$AUDIT_LOG" | tr -d ' ')
@@ -597,9 +525,7 @@ assert_contains "Audit records the label and the peer" \
     "$(tail -n 1 "$AUDIT_LOG")" \
     "[ALLOWED] [project-a] [192.0.2.5 51000] $UNAME_BIN"
 
-# The trail outlives what it audits, because the forced command puts it
-# outside the directory the target runs in. A workspace of its own here, so
-# that what the target deletes is a whole workspace rather than one file.
+# The trail is outside the workspace, so it outlives a target that empties it.
 RM_BIN=$(find_bin rm)
 GUARDED_WS="./guarded"
 GUARDED_LOG="$TEST_DIR/guarded-audit.log"
@@ -619,19 +545,15 @@ cat <<EOF > "host-proxy-ssh.sh"
 exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 EOF
 
-# A request nobody could account for is refused rather than served quietly.
 # The log is placed under a plain file, which no user can turn into a
-# directory: a mode the suite could chmod away would not stop root, and the
-# Linux run is root.
+# directory: a mode would not stop root, and the Linux run is root.
 : > ./notadir
 run_test_exit "Unopenable audit log refuses the request" 125 \
     "audit log ./notadir/audit.log: " \
     "${HEADER}1:1,${#UNAME_BIN}:$UNAME_BIN," \
     "$LOCAL_HOST_WRAPPER" -l ./notadir/audit.log "$ALLOWLIST"
 
-# A log that opens and then refuses the write is the same failure later on, so
-# the command must not run then either. /dev/full fails every write without a
-# disk to fill; macOS has no equivalent, which is what the guard is for.
+# /dev/full fails every write without a disk to fill; macOS has no equivalent.
 if [ -c /dev/full ]; then
     run_test_exit "Unwritable entry refuses the request" 125 \
         "Error: refusing to run a request that was not recorded" \
@@ -642,10 +564,8 @@ else
     printf '  (no /dev/full: skipping the unwritable-entry scenario)\n'
 fi
 
-# Scenario 28.5: The example wrappers
-# They exist because allowlisting git or a compiler is allowlisting a shell, so
-# what they refuse is asserted rather than described. One stub stands in for both
-# tools: what is under test is which invocations reach a tool at all.
+# The example wrappers. One stub stands in for both tools: what is under test
+# is which invocations reach a tool at all.
 cat > "./wrappers/stub-tool" <<'EOF'
 #!/bin/sh
 printf 'ran:'
@@ -682,13 +602,11 @@ run_test_exit "Compiler wrapper keeps its output in the workspace" 2 \
     "path outside the workspace: /tmp/out" "" \
     "$LOCAL_HOST_PROXY" ./wrappers/cc.sh -o /tmp/out main.c
 
-# Scenario 29: host-proxy's own failures
 run_test_exit "Proxy usage error exits 125" 125 "Usage:" "" "$LOCAL_HOST_PROXY"
 run_test_exit "Unrunnable connector exits 125" 125 "execvp failed" "" \
     env HOST_PROXY_SSH_SCRIPT=./no-such-connector "$LOCAL_HOST_PROXY" "$UNAME_BIN"
 
-# Scenario 30: The response. Only an x frame reports a status, so a connector
-# that ends without one is a transport failure whatever its own exit.
+# Only an x frame reports a status, so a connector that ends without one is a transport failure whatever its own exit.
 TRANSPORT_FAILED="Error: transport failed before the command reported status"
 MALFORMED="Error: malformed response from host-wrapper"
 respond() {
