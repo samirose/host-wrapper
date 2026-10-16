@@ -254,6 +254,10 @@ else
     report "Generator requires an output directory" yes
 fi
 
+GENERATOR_HELP=$("$GENERATOR" --help 2>/dev/null)
+assert_contains "Generator help shows the usage" "$GENERATOR_HELP" "Usage:"
+assert_not_contains "Generator help stops at the header" "$GENERATOR_HELP" "SCRIPT_DIR"
+
 if "$GENERATOR" "$TEST_DIR/bogus" --host-key "$TEST_DIR/nonexistent.pub" >/dev/null 2>&1; then
     report "Generator rejects an unreadable host key" no
 else
@@ -317,6 +321,10 @@ ODD_LINE=$(sh "$AUTHKEY" -n "a b" "$ODD_DIR/host-wrapper" "$ODD_DIR/allowlist" "
 ODD_CMD=$(printf '%s' "$ODD_LINE" | sed 's/^restrict,command="\(.*\)" ssh-ed25519 .*/\1/; s/\\"/"/g')
 assert_equals "Paths the shell would split reach the wrapper whole" \
     "$(sh -c "$ODD_CMD" | paste -sd '|' -)" "-n|a b|$ODD_DIR/allowlist"
+
+AUTHKEY_USAGE=$(sh "$AUTHKEY" 2>&1 >/dev/null)
+assert_contains "Key line usage shows the usage" "$AUTHKEY_USAGE" "Usage:"
+assert_not_contains "Key line usage stops at the header" "$AUTHKEY_USAGE" 'LABEL=""'
 
 if sh "$AUTHKEY" /opt/bin/host-wrapper /opt/proj/allowlist "$TEST_DIR/nonexistent.pub" >/dev/null 2>&1; then
     report "Key line refuses a missing public key" no

@@ -20,7 +20,7 @@ LABEL=""
 LOG=""
 
 usage() {
-    sed -n '3,17p' "$0" | sed 's/^# \{0,1\}//' >&2
+    awk 'NR > 2 { if (!/^#/) exit; sub(/^# ?/, ""); print }' "$0" >&2
     exit 1
 }
 

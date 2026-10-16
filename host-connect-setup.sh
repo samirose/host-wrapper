@@ -47,7 +47,7 @@ GATEWAY=""
 HOST_KEY_FILE=""
 
 usage() {
-    sed -n '3,40p' "$0" | sed 's/^# \{0,1\}//'
+    awk 'NR > 2 { if (!/^#/) exit; sub(/^# ?/, ""); print }' "$0"
     exit "${1:-1}"
 }
 
