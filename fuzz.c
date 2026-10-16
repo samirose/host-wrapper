@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-// Forward declarations from host-wrapper.c
+// A copy of host-wrapper.c's ParserContext, which has to stay in step with it.
 typedef struct {
     int fd;
     const unsigned char *buf;
@@ -18,12 +18,11 @@ typedef struct AuditLog AuditLog;
 int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
                 const char *workspace);
 
-// libFuzzer entry point
 int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     if (Size < 2) return 0;
 
-    // Use the first byte as the length of the allowlist data (max 255 bytes)
-    // This gives the fuzzer deterministic control over the split without modulo math
+    // The first byte is the allowlist's length, so the fuzzer controls the
+    // split directly.
     size_t allowlist_size = Data[0];
     if (allowlist_size > Size - 1) {
         allowlist_size = Size - 1;
@@ -33,18 +32,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     const uint8_t *netstring_data = Data + 1 + allowlist_size;
     size_t netstring_size = Size - 1 - allowlist_size;
 
-    // Create an in-memory file stream for the allowlist
     FILE *allowlist_fp = NULL;
     if (allowlist_size > 0) {
         allowlist_fp = fmemopen((void *)allowlist_data, allowlist_size, "r");
     } else {
-        // Fallback valid allowlist if size is 0
         allowlist_fp = fmemopen((void *)"/usr/bin/uname\n", 15, "r");
     }
     
     if (!allowlist_fp) return 0;
 
-    // Set up the context to read directly from the fuzzer's memory buffer
     ParserContext ctx = {
         .fd = -1,
         .buf = netstring_data,
@@ -52,7 +48,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
         .pos = 0
     };
 
-    // Run the parser logic
     run_wrapper(&ctx, allowlist_fp, NULL, "/dummy/path");
 
     fclose(allowlist_fp);

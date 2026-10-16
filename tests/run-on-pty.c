@@ -1,12 +1,10 @@
-// Test harness: runs a command with stdout and stderr on a PTY of a given size
-// and relays what comes back, so a suite written in shell can give host-proxy a
-// terminal on a stream of its choosing. stdin is passed through untouched,
-// which is what lets a caller redirect it and still expect a real size.
+// Runs a command with stdout and stderr on a PTY of the given size and relays
+// its output, so a shell suite can give host-proxy a terminal on chosen
+// streams. stdin passes through untouched. Exits with the command's status, or
+// 2 on a failure of its own.
 //
-// Usage: run-on-pty <cols> <rows> <path> [args...]
-//
-// The program is a path, not a name: exec here does not search PATH, so a
-// mistyped argument fails instead of finding some other binary.
+// path is not looked up in PATH, so a mistyped one fails rather than finding
+// another binary.
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE
 #define _DEFAULT_SOURCE
