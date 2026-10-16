@@ -31,6 +31,9 @@
 #include <limits.h>
 #include <libgen.h>
 #include <sys/ioctl.h>
+#include <stdarg.h>
+
+#include "output.c"
 
 // 0-124 belong to the target; see protocol.c.
 #define EXIT_PROXY_ERROR 125
@@ -40,24 +43,6 @@
 
 // A tag byte and a 64 KiB chunk.
 #define MAX_FRAME (65536 + 1)
-
-/**
- * Returns 0 once all of buf is written, or -1 on error or with some of it unwritten.
- */
-int write_all(int fd, const void *buf, size_t count) {
-    const char *ptr = buf;
-    size_t written = 0;
-    while (written < count) {
-        ssize_t w = write(fd, ptr + written, count - written);
-        if (w < 0) {
-            if (errno == EINTR) continue;
-            return -1;
-        }
-        if (w == 0) break;
-        written += (size_t)w;
-    }
-    return (written == count) ? 0 : -1;
-}
 
 int write_netstring(int fd, const char *data, size_t len) {
     char header[32];

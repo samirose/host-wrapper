@@ -16,7 +16,7 @@ WRAPPER_MODULES = output.c protocol.c audit.c allowlist.c pty.c wrapper.c
 
 # Included by host-proxy.c. A guest compiles build/host-proxy.c, which has them
 # in place of their includes.
-PROXY_MODULES =
+PROXY_MODULES = output.c
 
 all: host-wrapper host-proxy
 
