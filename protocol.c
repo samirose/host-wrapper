@@ -77,7 +77,7 @@ char* parse_netstring(ParserContext *ctx, size_t *out_len) {
     char *endptr;
     errno = 0;
     unsigned long long parsed_len = strtoull(len_buf, &endptr, 10);
-    
+
     if (errno == ERANGE || endptr == len_buf || *endptr != '\0') {
         log_error("Error: Invalid netstring length format\n");
         return NULL;
@@ -229,12 +229,12 @@ char** parse_target_args(ParserContext *ctx, int *out_argc) {
     char *endptr;
     errno = 0;
     long target_argc_long = strtol(argc_str, &endptr, 10);
-    
+
     if (errno == ERANGE || endptr == argc_str || *endptr != '\0') {
         log_error("Error: Invalid target argc format\n");
         goto cleanup;
     }
-    
+
     target_argc = (int)target_argc_long;
     if (target_argc <= 0 || target_argc > MAX_ARGS) {
         log_error("Error: Invalid target argc (%d)\n", target_argc);

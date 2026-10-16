@@ -85,7 +85,7 @@ int execute_command_with_pty(const char *exec_path, char **target_argv, int targ
     if (pid == 0) {
         dup2(slave_out, STDOUT_FILENO);
         dup2(slave_err, STDERR_FILENO);
-        
+
         if (!has_stdin) {
             int fd_null = open("/dev/null", O_RDONLY);
             if (fd_null >= 0) {

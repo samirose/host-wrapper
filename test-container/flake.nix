@@ -10,7 +10,7 @@
     let
       # Supported systems for the container (Linux)
       supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
-      
+
       # Helper to generate an attrset for each system
       forAllSystems = f: nixpkgs.lib.genAttrs supportedSystems (system: f system);
     in
@@ -22,12 +22,12 @@
         {
           ai = pkgs.mkShell {
             name = "host-wrapper-shell";
-            
+
             buildInputs = with pkgs; [
               # Build tools
               gcc
               gnumake
-              
+
               # Runtime dependencies
               openssh
               coreutils
@@ -35,14 +35,14 @@
 
               # Ai agent(s)
               llm-agents.packages.${system}.opencode
-              
+
               # Essential tools for the AI agent
               ripgrep
               git
               curl
               jq
               python3
-              
+
               # Network Utilities
               iputils    # ping, arping, tracepath
               bind       # dig, nslookup
@@ -61,7 +61,7 @@
               echo "-------------------------------------------"
             '';
           };
-          
+
           default = self.devShells.${system}.ai;
         }
       );

@@ -243,6 +243,8 @@ a whole commit in their head, and a bisect should be able to land on one.
   what.
 - **Keep the body short.** Bulleted main points by default. Prose only where
   something is complex or non-obvious enough to need it.
+- **No line ends in whitespace.** `git diff --cached --check` must print
+  nothing before you commit. Code moved verbatim is no exception.
 - **The message stands on its own.** It names neither this file nor anything
   kept outside the repository, such as a plan or its steps. Where the reason
   lives there, spell the reason out.

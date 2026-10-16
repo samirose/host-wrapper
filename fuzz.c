@@ -38,7 +38,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     } else {
         allowlist_fp = fmemopen((void *)"/usr/bin/uname\n", 15, "r");
     }
-    
+
     if (!allowlist_fp) return 0;
 
     ParserContext ctx = {
