@@ -23,7 +23,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _DARWIN_C_SOURCE
 // glibc and musl hide cfmakeraw and openpty behind this once _POSIX_C_SOURCE
-// is set; both are BSD extensions rather than POSIX.
+// is set.
 #define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,8 +60,7 @@
 #define EXIT_EXEC_FAILED   127
 
 /**
- * Writes all of buf, retrying a partial write and EINTR. Returns 0, or -1 on error or with some of
- * the data unwritten.
+ * Returns 0 once all of buf is written, or -1 on error or with some of it unwritten.
  */
 int write_all(int fd, const void *buf, size_t count) {
     const char *ptr = buf;
@@ -90,7 +89,8 @@ void log_error(const char *format, ...) {
 }
 
 /**
- * Creates the directories leading to path, each private to the user.
+ * Creates the directories leading to path, each mode 0700. Returns 0, or -1
+ * having reported why.
  */
 int make_parent_dirs(const char *path) {
     char dir[PATH_MAX];
@@ -119,9 +119,8 @@ int make_parent_dirs(const char *path) {
 }
 
 /**
- * Where the trail goes when the forced command does not name a path: the
- * user's state directory, which is outside every workspace the wrapper can be
- * pointed at. Returns -1, having said why, when there is no such directory.
+ * Writes the default audit log path, under XDG_STATE_HOME or else
+ * ~/.local/state, into buf. Returns 0, or -1 having reported why.
  */
 int default_audit_path(char *buf, size_t size) {
     const char *state = getenv("XDG_STATE_HOME");
@@ -148,9 +147,8 @@ int default_audit_path(char *buf, size_t size) {
 }
 
 /**
- * Opens the audit trail for appending. Held open for the run, so that every
- * entry goes to the file this resolved, whatever happens to the path
- * afterwards. Returns -1, having said why, when the trail cannot be kept.
+ * Opens path for appending, creating it and its directories. Returns the
+ * descriptor, or -1 having reported why.
  */
 int audit_open(const char *path) {
     if (make_parent_dirs(path) == -1) return -1;
@@ -161,9 +159,8 @@ int audit_open(const char *path) {
 }
 
 /**
- * Who is on the other end, as sshd reports it: SSH_CONNECTION's first two
- * fields are the client address and port, and the rest describes this host.
- * Writes "-" when nothing started the wrapper over SSH.
+ * Writes the client address and port, the first two fields of SSH_CONNECTION,
+ * into buf, or "-" when it is unset.
  */
 void audit_client(char *buf, size_t size) {
     const char *conn = getenv("SSH_CONNECTION");
@@ -187,7 +184,7 @@ void audit_client(char *buf, size_t size) {
 
 /**
  * What the trail records besides the request: which key the host is serving,
- * and which peer asked. Both are settled before a request is read.
+ * and which peer asked.
  */
 typedef struct AuditLog {
     int fd;
@@ -196,7 +193,8 @@ typedef struct AuditLog {
 } AuditLog;
 
 /**
- * Writes one argument as text, escaping newlines to keep each argument on its own log line.
+ * Writes arg with control bytes as \xNN and backslash doubled, so that no
+ * argument can forge an entry.
  */
 static void audit_write_arg(FILE *out, const char *arg) {
     for (const unsigned char *p = (const unsigned char *)arg; *p; p++) {
@@ -211,7 +209,7 @@ static void audit_write_arg(FILE *out, const char *arg) {
 }
 
 /**
- * Appends one execution event to the audit trail. Returns 0 on success, -1 on failure.
+ * Appends one entry to the audit trail. Returns 0, or -1 on failure.
  */
 int audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
 #ifndef FUZZING
@@ -254,7 +252,7 @@ int audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
 }
 
 /**
- * Parser context to allow reading from either a file descriptor or memory buffer.
+ * Reads from buf when it is set, from fd otherwise.
  */
 typedef struct {
     int fd;
@@ -269,7 +267,7 @@ typedef struct {
 } TerminalSize;
 
 /**
- * Reads a single byte from the context source.
+ * Returns the next byte, EOF at the end of input, or -2 on a read error.
  */
 int get_next_byte(ParserContext *ctx) {
     if (ctx->buf) {
@@ -285,20 +283,19 @@ int get_next_byte(ParserContext *ctx) {
         if (n == 1) return (int)c;
         if (n == 0) return EOF;
         if (errno == EINTR) continue;
-        return -2; // Error
+        return -2;
     }
 }
 
 /**
- * Parses a single netstring from the context.
- * Format: [length]:[data], where length is in ASCII decimal digits.
+ * Returns the next netstring's data, malloc'd and NUL-terminated, with its
+ * length in *out_len. Returns NULL having reported why.
  */
 char* parse_netstring(ParserContext *ctx, size_t *out_len) {
     char len_buf[16];
     int i = 0;
     int c;
 
-    // Read length digits
     while ((c = get_next_byte(ctx)) >= 0 && isdigit(c)) {
         if (i < (int)sizeof(len_buf) - 1) {
             len_buf[i++] = (char)c;
@@ -323,7 +320,6 @@ char* parse_netstring(ParserContext *ctx, size_t *out_len) {
     errno = 0;
     unsigned long long parsed_len = strtoull(len_buf, &endptr, 10);
     
-    // Check for overflow or no digits parsed
     if (errno == ERANGE || endptr == len_buf || *endptr != '\0') {
         log_error("Error: Invalid netstring length format\n");
         return NULL;
@@ -341,7 +337,6 @@ char* parse_netstring(ParserContext *ctx, size_t *out_len) {
         return NULL;
     }
 
-    // Read exact number of data bytes
     for (size_t j = 0; j < len; j++) {
         c = get_next_byte(ctx);
         if (c < 0) {
@@ -353,7 +348,6 @@ char* parse_netstring(ParserContext *ctx, size_t *out_len) {
     }
     data[len] = '\0';
 
-    // Final trailing comma
     if (get_next_byte(ctx) != ',') {
         log_error("Error: Malformed netstring (expected ',')\n");
         free(data);
@@ -369,7 +363,8 @@ char* parse_netstring(ParserContext *ctx, size_t *out_len) {
  * absolutely, or relative to the allowlist directory, which is where the
  * target runs.
  *
- * Returns a malloc'd path, or NULL on failure with *why set to the reason.
+ * Returns a malloc'd path, or NULL with *why set to the reason, or with *why
+ * NULL when out of memory.
  */
 char* resolve_command(const char *path, const char *workspace, const char **why) {
     *why = NULL;
@@ -378,12 +373,9 @@ char* resolve_command(const char *path, const char *workspace, const char **why)
         return NULL;
     }
 
-    // A ".." component makes the text and the file two different things again,
-    // whichever side of the comparison it appears on.
-    //
-    // The conjunct order is important: each index is reached only once the
-    // byte before it has tested non-NUL, so the furthest read is the
-    // terminator. Reordering these tests would read past the string.
+    // A ".." component would make the string compared and the file run two
+    // different things. Each index is read only once the byte before it has
+    // tested non-NUL, so reordering these tests would read past the string.
     for (const char *p = path; *p; p++) {
         if ((p == path || p[-1] == '/') && p[0] == '.' && p[1] == '.' &&
             (p[2] == '/' || p[2] == '\0')) {
@@ -429,23 +421,18 @@ char* allowlist_entry(char *line, int *has_stdin, const char **bad_option) {
     *has_stdin = 0;
     *bad_option = NULL;
 
-    // Strip newline
     line[strcspn(line, "\r\n")] = 0;
 
     char *p = line;
-    // Skip leading whitespace
     while (isspace(*p)) p++;
 
-    // Handle inline comments: find the first '#' and truncate the string there
     char *comment = strchr(p, '#');
     if (comment) {
         *comment = '\0';
     }
 
-    // If the line is empty after stripping comments/whitespace, skip it
     if (*p == '\0') return NULL;
 
-    // Strip trailing whitespace
     char *end = p + strlen(p) - 1;
     while (end > p && isspace(*end)) {
         *end = '\0';
@@ -468,7 +455,8 @@ char* allowlist_entry(char *line, int *has_stdin, const char **bad_option) {
 }
 
 /**
- * Checks if the given command is present and enabled in the allowlist file.
+ * Looks up cmd, a resolved path, in the allowlist. An entry carrying an
+ * unknown option never matches.
  */
 AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) {
     AllowlistResult res = { .allowed = 0, .has_stdin = 0 };
@@ -505,16 +493,11 @@ AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) 
 }
 
 /**
- * Reports every allowlist entry the wrapper cannot enforce as written, so
- * that it can refuse to serve a request against such a list. Leaves the
- * stream rewound for the lookup. Returns the number of entries read, or -1 if
- * any of them is unusable.
+ * Reports every allowlist entry the wrapper cannot enforce as written, and
+ * rewinds fp. Returns the number of entries, or -1 if any is unusable.
  *
- * Reading the list twice is not a check-then-use window. The lookup reads the
- * same open stream, so the file cannot be swapped underneath it, and it
- * resolves every entry itself rather than trusting what this pass saw. That
- * makes this a startup diagnostic: it fails the whole list loudly, where the
- * lookup would only ever skip the offending line.
+ * This is not a check-then-use window: the lookup reads the same stream and
+ * resolves every entry itself, so this pass only decides whether to start.
  */
 int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
     char *line = NULL;
@@ -554,9 +537,6 @@ int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
     return bad ? -1 : entries;
 }
 
-/**
- * Frees the reconstructed argv array and its elements.
- */
 void free_target_args(char **argv, int argc) {
     if (!argv) return;
     for (int i = 0; i < argc; i++) {
@@ -566,15 +546,14 @@ void free_target_args(char **argv, int argc) {
 }
 
 /**
- * Parses the netstring header to reconstruct the target argc and argv.
- * Returns the argv array on success, or NULL on error.
+ * Parses the argument count and the arguments following the header. Returns a
+ * NULL-terminated argv, or NULL having reported why.
  */
 char** parse_target_args(ParserContext *ctx, int *out_argc) {
     char *argc_str = NULL;
     char **target_argv = NULL;
     int target_argc = 0;
 
-    // 1. Parse target argc string from netstring
     size_t dummy_len;
     argc_str = parse_netstring(ctx, &dummy_len);
     if (!argc_str) return NULL;
@@ -594,7 +573,6 @@ char** parse_target_args(ParserContext *ctx, int *out_argc) {
         goto cleanup;
     }
 
-    // 2. Parse target argv array
     target_argv = calloc((size_t)target_argc + 1, sizeof(char *));
     if (!target_argv) {
         log_error("calloc: %s\n", strerror(errno));
@@ -619,10 +597,9 @@ cleanup:
 }
 
 /**
- * The directory holding the allowlist: both where the target runs and what a
- * relative command resolves against. Canonical, so that how the forced command
- * happened to spell the allowlist path does not change which string a relative
- * entry resolves to. Returns a malloc'd path, or NULL on error.
+ * Returns the directory holding the allowlist, canonical and malloc'd, or NULL
+ * having reported why. Canonical, so that how the forced command spells the
+ * allowlist path does not change what a relative entry resolves to.
  */
 char* workspace_dir(const char *allowlist_path) {
     char *path_copy = strdup(allowlist_path);
@@ -653,16 +630,13 @@ static int write_frame(char tag, const void *data, size_t len) {
 }
 
 /**
- * Forwards everything readable on a PTY master as frames tagged tag. Returns 1
- * once the stream is finished, 0 while it may still yield more, -1 on a write
- * failure.
- * master_fd must be O_NONBLOCK: a pass ends on EAGAIN, which a blocking read
- * would never report.
+ * Forwards everything readable on master_fd, which must be O_NONBLOCK, as
+ * frames tagged tag. Returns 1 once the stream is finished, 0 while it may
+ * still yield more, -1 having reported a write failure.
  *
- * Linux raises POLLHUP on a master as soon as the slave closes, with whatever
- * the target wrote still buffered behind it, so only a read may retire a
- * stream. A drained master reports EIO on Linux and a zero read on macOS; both
- * mean end of output.
+ * Linux raises POLLHUP on a master while output is still buffered, so only a
+ * read may retire a stream. A drained master reports EIO on Linux and a zero
+ * read on macOS.
  */
 static int drain_pty(int master_fd, char tag, const char *name) {
     unsigned char buf[4096];
@@ -684,8 +658,9 @@ static int drain_pty(int master_fd, char tag, const char *name) {
 }
 
 /**
- * Spawns the target process inside dual PTY streams (stdout and stderr separated)
- * and enters a poll loop to forward output. Returns the target command's exit code.
+ * Runs the target with stdout and stderr on PTYs of their own, forwarding each
+ * as frames. Returns its exit status, 128+n when signal n killed it, or 125
+ * having reported why.
  */
 int execute_command_with_pty(const char *exec_path, char **target_argv, int target_argc, TerminalSize termsize, int has_stdin) {
     int ret = EXIT_WRAPPER_ERROR;
@@ -709,15 +684,12 @@ int execute_command_with_pty(const char *exec_path, char **target_argv, int targ
         goto execution_cleanup;
     }
 
-    // Draining a master to EOF means reading past the point where a blocking
-    // read would stall waiting for the next write.
     if (fcntl(master_out, F_SETFL, O_NONBLOCK) == -1 ||
         fcntl(master_err, F_SETFL, O_NONBLOCK) == -1) {
         log_error("fcntl O_NONBLOCK: %s\n", strerror(errno));
         goto execution_cleanup;
     }
 
-    // Set both PTYs to raw mode
     struct termios ios;
     if (tcgetattr(slave_out, &ios) == 0) {
         cfmakeraw(&ios);
@@ -735,11 +707,9 @@ int execute_command_with_pty(const char *exec_path, char **target_argv, int targ
     }
 
     if (pid == 0) {
-        // Child:
         dup2(slave_out, STDOUT_FILENO);
         dup2(slave_err, STDERR_FILENO);
         
-        // Handle stdin option
         if (!has_stdin) {
             int fd_null = open("/dev/null", O_RDONLY);
             if (fd_null >= 0) {
@@ -761,7 +731,6 @@ int execute_command_with_pty(const char *exec_path, char **target_argv, int targ
         _exit(EXIT_EXEC_FAILED);
     }
 
-    // Parent:
     close(slave_out); slave_out = -1;
     close(slave_err); slave_err = -1;
 
@@ -967,7 +936,7 @@ int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
 #else
     (void)audit;
     (void)termsize;
-    ret = 0; // Success in fuzzing mode
+    ret = 0;
 #endif
 
 cleanup:
@@ -978,9 +947,8 @@ cleanup:
 
 #ifndef FUZZING
 /**
- * Reads an allowlist and reports on it, serving nothing. The entries go through
- * the validation a served run applies, so a clean exit here is a list the
- * wrapper will start on and 125 is one it will refuse.
+ * Reports on an allowlist, serving nothing. Returns 0 for a list the wrapper
+ * will start on, or 125 for one it will refuse.
  */
 int check_allowlist(const char *path) {
     FILE *fp = fopen(path, "r");
@@ -1062,7 +1030,6 @@ static int serve(int argc, char *argv[]) {
         log_path = default_path;
     }
 
-    // A request served without a trail is a request nobody can account for.
     int audit_fd = audit_open(log_path);
     if (audit_fd == -1) {
         free(workspace);
