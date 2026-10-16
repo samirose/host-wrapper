@@ -122,7 +122,6 @@ static void audit_write_arg(FILE *out, const char *arg) {
  * Appends one entry to the audit trail. Returns 0, or -1 on failure.
  */
 int audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
-#ifndef FUZZING
     if (!log || log->fd == -1) return -1;
 
     char ts[64];
@@ -155,8 +154,4 @@ int audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
     if (written == -1) log_error("audit log: %s\n", strerror(errno));
     free(entry);
     return written;
-#else
-    (void)log; (void)status; (void)argc; (void)argv;
-    return 0;
-#endif
 }

@@ -21,6 +21,15 @@
 #include "allowlist.c"
 #include "wrapper.c"
 
+static AuditLog audit = { .fd = -1, .label = "fuzz", .client = "-" };
+
+int LLVMFuzzerInitialize(int *argc, char ***argv) {
+    (void)argc; (void)argv;
+    audit.fd = open("/dev/null", O_WRONLY);
+    if (audit.fd == -1) abort();
+    return 0;
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     if (Size < 2) return 0;
 
@@ -51,7 +60,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
         .pos = 0
     };
 
-    run_wrapper(&ctx, allowlist_fp, NULL, "/dummy/path");
+    run_wrapper(&ctx, allowlist_fp, &audit, "/dummy/path");
 
     fclose(allowlist_fp);
     return 0;
