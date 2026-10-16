@@ -1,5 +1,5 @@
-int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
-                const char *workspace) {
+static int run_wrapper(ParserContext *ctx, FILE *allowlist_fp,
+                       const AuditLog *audit, const char *workspace) {
     int ret = EXIT_INTERNAL_ERROR;
     char **target_argv = NULL;
     char *exec_path = NULL;

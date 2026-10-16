@@ -6,7 +6,7 @@
  * Returns a malloc'd path, or NULL with *why set to the reason, or with *why
  * NULL when out of memory.
  */
-char* resolve_command(const char *path, const char *workspace, const char **why) {
+static char* resolve_command(const char *path, const char *workspace, const char **why) {
     *why = NULL;
     if (!path || !*path) {
         *why = "is empty";
@@ -57,7 +57,7 @@ typedef struct {
  * *bad_option is the first token that is not an option this wrapper knows, and
  * points into line.
  */
-char* allowlist_entry(char *line, int *has_stdin, const char **bad_option) {
+static char* allowlist_entry(char *line, int *has_stdin, const char **bad_option) {
     *has_stdin = 0;
     *bad_option = NULL;
 
@@ -98,7 +98,7 @@ char* allowlist_entry(char *line, int *has_stdin, const char **bad_option) {
  * Looks up cmd, a resolved path, in the allowlist. An entry carrying an
  * unknown option never matches.
  */
-AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) {
+static AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) {
     AllowlistResult res = { .allowed = 0, .has_stdin = 0 };
     if (!fp) return res;
 
@@ -139,7 +139,7 @@ AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) 
  * This is not a check-then-use window: the lookup reads the same stream and
  * resolves every entry itself, so this pass only decides whether to start.
  */
-int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
+static int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
     char *line = NULL;
     size_t linecap = 0;
     ssize_t linelen;
@@ -182,7 +182,7 @@ int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
  * having reported why. Canonical, so that how the forced command spells the
  * allowlist path does not change what a relative entry resolves to.
  */
-char* workspace_dir(const char *allowlist_path) {
+static char* workspace_dir(const char *allowlist_path) {
     char *path_copy = strdup(allowlist_path);
     if (!path_copy) {
         log_error("strdup: %s\n", strerror(errno));

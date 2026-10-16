@@ -36,7 +36,7 @@
 #include "output.c"
 #include "protocol.h"
 
-int write_netstring(int fd, const char *data, size_t len) {
+static int write_netstring(int fd, const char *data, size_t len) {
     char header[32];
     int header_len = snprintf(header, sizeof(header), "%zu:", len);
     if (write_all(fd, header, (size_t)header_len) == -1) return -1;
@@ -66,7 +66,7 @@ typedef struct {
 
 typedef int (*FrameSink)(char tag, const unsigned char *data, size_t len);
 
-void frame_decoder_init(FrameDecoder *d) {
+static void frame_decoder_init(FrameDecoder *d) {
     memset(d, 0, sizeof(*d));
     d->state = FRAME_LENGTH;
     d->exit_status = -1;
@@ -87,7 +87,7 @@ static int parse_status(const char *s, size_t len) {
  * 0, -1 on a malformed response, or -2 when sink failed. d->state is FRAME_DONE
  * once the status frame has arrived, with the status in d->exit_status.
  */
-int decode_frames(FrameDecoder *d, const unsigned char *buf, size_t len, FrameSink sink) {
+static int decode_frames(FrameDecoder *d, const unsigned char *buf, size_t len, FrameSink sink) {
     size_t i = 0;
     while (i < len) {
         unsigned char c = buf[i];
@@ -187,7 +187,7 @@ static int read_response(int fd) {
  * in proxy_dir, reading request_fd and writing response_fd. Never returns:
  * exits 125 having reported why when the script cannot be run.
  */
-void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
+static void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
     if (dup2(request_fd, STDIN_FILENO) == -1 || dup2(response_fd, STDOUT_FILENO) == -1) {
         log_error("dup2: %s\n", strerror(errno));
         exit(EXIT_INTERNAL_ERROR);
@@ -217,7 +217,7 @@ void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
  * Copies stdin to pipe_write_fd. Never returns: exits 0 once stdin ends or
  * fails, or the pipe can no longer be written.
  */
-void execute_stdin_pump(int pipe_write_fd) {
+static void execute_stdin_pump(int pipe_write_fd) {
     unsigned char buffer[4096];
     ssize_t n;
     while ((n = read(0, buffer, sizeof(buffer))) > 0) {
@@ -268,8 +268,8 @@ static int send_request(int fd, int argc, char *argv[]) {
  * status host-wrapper reported, 141 when stdout closed, or 125 having reported
  * why.
  */
-int execute_proxy_parent(int request_fd, int response_fd, pid_t child_pid,
-                         int argc, char *argv[]) {
+static int execute_proxy_parent(int request_fd, int response_fd,
+                                pid_t child_pid, int argc, char *argv[]) {
     // A closed pipe surfaces as EPIPE: on the request, so that the response is
     // still read; on stdout, to exit 141 once the children are reaped.
     signal(SIGPIPE, SIG_IGN);

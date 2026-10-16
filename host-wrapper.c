@@ -55,7 +55,7 @@
  * Reports on an allowlist, serving nothing. Returns 0 for a list the wrapper
  * will start on, or 125 for one it will refuse.
  */
-int check_allowlist(const char *path) {
+static int check_allowlist(const char *path) {
     FILE *fp = fopen(path, "r");
     if (!fp) {
         log_error("fopen allowlist: %s\n", strerror(errno));
@@ -78,7 +78,7 @@ int check_allowlist(const char *path) {
     return 0;
 }
 
-void usage(const char *program) {
+static void usage(const char *program) {
     fprintf(stderr, "Usage: %s [-l audit_log_path] [-n label] <allowlist_path>\n"
                     "       %s --check <allowlist_path>\n",
             program, program);

@@ -19,7 +19,7 @@ typedef struct {
 /**
  * Returns the next byte, EOF at the end of input, or -2 on a read error.
  */
-int get_next_byte(ParserContext *ctx) {
+static int get_next_byte(ParserContext *ctx) {
     if (ctx->buf) {
         if (ctx->pos < ctx->size) {
             return (int)ctx->buf[ctx->pos++];
@@ -41,7 +41,7 @@ int get_next_byte(ParserContext *ctx) {
  * Returns the next netstring's data, malloc'd and NUL-terminated, with its
  * length in *out_len. Returns NULL having reported why.
  */
-char* parse_netstring(ParserContext *ctx, size_t *out_len) {
+static char* parse_netstring(ParserContext *ctx, size_t *out_len) {
     char len_buf[16];
     int i = 0;
     int c;
@@ -167,7 +167,7 @@ static int apply_option(char *option, size_t len, TerminalSize *size,
  * may repeat, so the header cannot carry anything this wrapper would ignore.
  * Returns 0, or -1 having reported why.
  */
-int parse_header(ParserContext *ctx, TerminalSize *size) {
+static int parse_header(ParserContext *ctx, TerminalSize *size) {
     size->cols = 80;
     size->rows = 24;
 
@@ -197,7 +197,7 @@ int parse_header(ParserContext *ctx, TerminalSize *size) {
     }
 }
 
-void free_target_args(char **argv, int argc) {
+static void free_target_args(char **argv, int argc) {
     if (!argv) return;
     for (int i = 0; i < argc; i++) {
         if (argv[i]) free(argv[i]);
@@ -209,7 +209,7 @@ void free_target_args(char **argv, int argc) {
  * Parses the argument count and the arguments following the header. Returns a
  * NULL-terminated argv, or NULL having reported why.
  */
-char** parse_target_args(ParserContext *ctx, int *out_argc) {
+static char** parse_target_args(ParserContext *ctx, int *out_argc) {
     char *argc_str = NULL;
     char **target_argv = NULL;
     int target_argc = 0;

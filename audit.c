@@ -2,7 +2,7 @@
  * Creates the directories leading to path, each mode 0700. Returns 0, or -1
  * having reported why.
  */
-int make_parent_dirs(const char *path) {
+static int make_parent_dirs(const char *path) {
     char dir[PATH_MAX];
     if (snprintf(dir, sizeof(dir), "%s", path) >= (int)sizeof(dir)) {
         log_error("audit log %s: path too long\n", path);
@@ -32,7 +32,7 @@ int make_parent_dirs(const char *path) {
  * Writes the default audit log path, under XDG_STATE_HOME or else
  * ~/.local/state, into buf. Returns 0, or -1 having reported why.
  */
-int default_audit_path(char *buf, size_t size) {
+static int default_audit_path(char *buf, size_t size) {
     const char *state = getenv("XDG_STATE_HOME");
     int n;
 
@@ -60,7 +60,7 @@ int default_audit_path(char *buf, size_t size) {
  * Opens path for appending, creating it and its directories. Returns the
  * descriptor, or -1 having reported why.
  */
-int audit_open(const char *path) {
+static int audit_open(const char *path) {
     if (make_parent_dirs(path) == -1) return -1;
 
     int fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0600);
@@ -72,7 +72,7 @@ int audit_open(const char *path) {
  * Writes the client address and port, the first two fields of SSH_CONNECTION,
  * into buf, or "-" when it is unset.
  */
-void audit_client(char *buf, size_t size) {
+static void audit_client(char *buf, size_t size) {
     const char *conn = getenv("SSH_CONNECTION");
     size_t n = 0;
     int spaces = 0;
@@ -121,7 +121,7 @@ static void audit_write_arg(FILE *out, const char *arg) {
 /**
  * Appends one entry to the audit trail. Returns 0, or -1 on failure.
  */
-int audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
+static int audit_log(const AuditLog *log, const char *status, int argc, char **argv) {
     if (!log || log->fd == -1) return -1;
 
     char ts[64];

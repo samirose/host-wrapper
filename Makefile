@@ -74,9 +74,13 @@ test-linux:
 check-posix:
 	./check-posix.sh
 
-# Needs a clang with libFuzzer.
+# Needs a clang with libFuzzer. A fuzzer builds part of a program, so what only
+# main reaches goes unused there; the programs' own builds still report it.
+# Inlining static functions would merge the edges coverage is counted on.
+FUZZ_CFLAGS = $(CFLAGS) -Wno-unused-function -fno-inline
+
 host-wrapper-fuzzer: fuzz.c $(WRAPPER_MODULES)
-	$(CLANG) $(CFLAGS) -fsanitize=fuzzer,address -o $@ fuzz.c
+	$(CLANG) $(FUZZ_CFLAGS) -fsanitize=fuzzer,address -o $@ fuzz.c
 
 fuzz: host-wrapper-fuzzer fuzz.dict
 	mkdir -p corpus
@@ -90,7 +94,7 @@ fuzz-minimize: host-wrapper-fuzzer
 
 # host-proxy's response decoder, fed its input in reads of varying size
 host-proxy-fuzzer: build/host-proxy.c fuzz-proxy.c
-	$(CLANG) $(CFLAGS) -fsanitize=fuzzer,address,undefined -o $@ fuzz-proxy.c
+	$(CLANG) $(FUZZ_CFLAGS) -fsanitize=fuzzer,address,undefined -o $@ fuzz-proxy.c
 
 fuzz-proxy: host-proxy-fuzzer
 	mkdir -p corpus-proxy

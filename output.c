@@ -1,7 +1,7 @@
 /**
  * Returns 0 once all of buf is written, or -1 on error or with some of it unwritten.
  */
-int write_all(int fd, const void *buf, size_t count) {
+static int write_all(int fd, const void *buf, size_t count) {
     const char *ptr = buf;
     size_t written = 0;
     while (written < count) {
@@ -16,7 +16,7 @@ int write_all(int fd, const void *buf, size_t count) {
     return (written == count) ? 0 : -1;
 }
 
-void log_error(const char *format, ...) {
+static void log_error(const char *format, ...) {
 #ifndef FUZZING
     va_list args;
     va_start(args, format);
