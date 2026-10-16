@@ -30,7 +30,7 @@ EOF
 fi
 
 if [ ! -f "$SSH_KEY_FILE" ]; then
-    echo "[*] Generating dedicated container SSH key at \$SSH_KEY_FILE..."
+    echo "[*] Generating dedicated container SSH key at $SSH_KEY_FILE..."
     ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "example-container.key"
     chmod 600 "$SSH_KEY_FILE"
 fi
