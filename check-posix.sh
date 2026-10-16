@@ -1,23 +1,17 @@
 #!/bin/sh
 #
-# Enforces the shell portability policy documented in AGENTS.md.
+# Enforces the shell portability policy: every #!/bin/sh script, and the
+# generated guest bundle, parses under dash or ash and holds no bashisms, and
+# the connection suite passes under that shell.
 #
-# Covers every script whose shebang is /bin/sh. That includes
-# share/host-proxy-ssh.sh, the tier 1 file that has to run under busybox ash
-# inside a guest container, and ssh/host-wrapper.env, which is generated with
-# interpolation and so has to be produced before it can be checked.
-#
-# macOS /bin/sh is bash in POSIX mode, so checking with it proves nothing. This
-# looks for a real POSIX shell instead, and skips rather than fails if the
-# machine has none, so `make test` still works on a bare system.
+# macOS /bin/sh is bash in POSIX mode, so it proves nothing here. Without dash
+# or ash, the checks needing one are skipped rather than failed.
 
 cd "$(dirname "$0")" || exit 1
 
 status=0
 
-# Bash constructs that either fail to parse under a POSIX shell or, worse, parse
-# and behave differently. The parameter expansion alternatives deliberately omit
-# ":-" and ":=", both of which are POSIX.
+# The parameter expansion alternatives omit ":-" and ":=", both POSIX.
 BASHISMS='\[\[[^:]|(^|[;&|(])[[:space:]]*(local|source)[[:space:]]|<<<|\becho +-[neE]|\+=|pipefail|\bfunction +[A-Za-z_]+ *\(|\$\{[A-Za-z_][A-Za-z0-9_]*(:[0-9]|/|\^|,)'
 
 fail() {
@@ -50,7 +44,6 @@ else
     printf '  POSIX shell: none found (install dash to enforce the full policy)\n'
 fi
 
-# 1. Parse every /bin/sh script under a strict POSIX shell.
 if [ -n "$POSIX_SH" ]; then
     for f in $sh_files; do
         "$POSIX_SH" -n "$f" || fail "$f does not parse under $POSIX_SH"
@@ -58,8 +51,7 @@ if [ -n "$POSIX_SH" ]; then
     printf '  parse: checked%s\n' "$sh_files"
 fi
 
-# 2. Grep for bashisms. The checker excludes itself: BASHISMS above contains the
-# literal "pipefail" and "+=", so it would match its own pattern definition.
+# BASHISMS would match its own definition.
 for f in $sh_files; do
     case "$f" in
         ./check-posix.sh) continue ;;
@@ -70,11 +62,8 @@ for f in $sh_files; do
 done
 printf '  bashisms: none in the /bin/sh scripts\n'
 
-# 3. Check a generated bundle. host-wrapper.env is interpolated, so nothing
-# static reaches it. The connection script is re-checked here as an installed
-# copy, which is what would catch a generator putting the wrong file in place.
-# A throwaway key keeps this independent of whether the machine has readable
-# host keys.
+# host-wrapper.env exists only as generated, and the connection script is
+# checked again as installed. A throwaway key stands in for the host's own.
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/host-wrapper-posix.XXXXXX")
 if [ -z "$tmp" ] || [ ! -d "$tmp" ]; then
     fail "could not create a temporary directory (check TMPDIR)"
@@ -98,9 +87,8 @@ else
     fail "could not generate a bundle to check"
 fi
 
-# 4. Run the connection suite under the POSIX shell. The shim is what makes this
-# meaningful: without it the suite's inner `sh host-proxy-ssh.sh` calls would run
-# under bash and the guest script would never meet a POSIX shell at all.
+# Without the shim, the suite's inner `sh host-proxy-ssh.sh` calls would run
+# under bash, and the guest script would never meet a POSIX shell.
 if [ -n "$POSIX_SH" ]; then
     mkdir -p "$tmp/shim"
     ln -sf "$POSIX_SH" "$tmp/shim/sh"

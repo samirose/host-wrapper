@@ -11,15 +11,9 @@
 #   ssh/known_hosts        this host's public host key, pinned under a stable alias
 #   ssh/host-wrapper.env   host-provided values consumed by the connection script
 #
-# The guest resolves the host address from its own default route at connection
-# time, because the container gateway address is not stable: on macOS native
-# containers it depends on the networks configured for the system, so any
-# hardcoded value is a guess that breaks on the next machine.
-#
-# A moving address is only safe if host identity is verified independently of
-# it. The host key is therefore pinned under a fixed alias (HostKeyAlias), which
-# lets the connection use StrictHostKeyChecking=yes even though the address it
-# connects to may differ from run to run.
+# The guest finds the host address from its own default route when it
+# connects, and verifies the host key under a fixed alias, so an address that
+# changes never weakens verification.
 #
 # Usage:
 #   sh host-connect-setup.sh <output-dir> [options]
@@ -74,7 +68,6 @@ if [ -z "$OUT_DIR" ]; then
     usage 1
 fi
 
-# Locate a host public key to pin.
 if [ -z "$HOST_KEY_FILE" ]; then
     for candidate in \
         /etc/ssh/ssh_host_ed25519_key.pub \
@@ -95,10 +88,7 @@ if [ -z "$HOST_KEY_FILE" ] || [ ! -r "$HOST_KEY_FILE" ]; then
     exit 1
 fi
 
-# The connection script is a file kept beside this one rather than something
-# generated here: it is identical on every host, because everything that varies
-# lives in ssh/host-wrapper.env. Check it before writing anything, so a failure
-# here leaves no half-written bundle behind.
+# Checked before anything is written, so a failure leaves no partial bundle.
 CONNECT_SOURCE="$SCRIPT_DIR/share/host-proxy-ssh.sh"
 if [ ! -r "$CONNECT_SOURCE" ]; then
     echo "host-connect-setup: cannot read $CONNECT_SOURCE." >&2
@@ -109,9 +99,7 @@ fi
 
 mkdir -p "$OUT_DIR/ssh"
 
-# 1. Pin the host key under a stable alias.
-#    Only the type and the key material are kept; the trailing comment is not
-#    part of the identity and only adds noise to the pin.
+# The type and the key only: the comment is not part of the identity.
 KNOWN_HOSTS="$OUT_DIR/ssh/known_hosts"
 printf '# Host identity for host-wrapper, pinned under the alias "%s".\n' "$KEY_ALIAS" > "$KNOWN_HOSTS"
 printf '# Regenerate with host-connect-setup.sh if the host key changes.\n' >> "$KNOWN_HOSTS"
@@ -125,7 +113,6 @@ if ! ssh-keygen -lf "$KNOWN_HOSTS" >/dev/null 2>&1; then
     exit 1
 fi
 
-# 2. Record the host-provided values.
 shquote() {
     printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
@@ -148,7 +135,6 @@ ENV_FILE="$OUT_DIR/ssh/host-wrapper.env"
 } > "$ENV_FILE"
 chmod 644 "$ENV_FILE"
 
-# 3. Install the connection script, checked for readability above.
 CONNECT_SCRIPT="$OUT_DIR/host-proxy-ssh.sh"
 cp "$CONNECT_SOURCE" "$CONNECT_SCRIPT"
 chmod +x "$CONNECT_SCRIPT"

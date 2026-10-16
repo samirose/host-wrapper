@@ -1,8 +1,7 @@
 #!/bin/sh
 
-# Generic Host-Wrapper Setup Script
-# This script initializes secure host-side configurations in standard user
-# directories and generates the restricted SSH keypair used by container clients.
+# Creates the allowlist and the guest's key, assembles the guest bundle, and
+# prints the steps that remain.
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
@@ -12,14 +11,11 @@ SSH_KEY_DIR="$HOME/.ssh"
 SSH_KEY_FILE="$SSH_KEY_DIR/host-wrapper_id_ed25519"
 GUEST_KEY_NAME="host-wrapper_id_ed25519"
 
-# Everything the guest needs is assembled here, ready to be copied in one go.
 GUEST_DIR="./guest"
 
-# 1. Create standard config directories
 mkdir -p "$ALLOWLIST_DIR"
 mkdir -p "$SSH_KEY_DIR"
 
-# 2. Create default allowlist file
 if [ ! -f "$ALLOWLIST_FILE" ]; then
     echo "Creating default allowlist file at $ALLOWLIST_FILE..."
     cat <<EOF > "$ALLOWLIST_FILE"
@@ -39,7 +35,6 @@ if [ ! -f "$ALLOWLIST_FILE" ]; then
 EOF
 fi
 
-# 3. Generate SSH Key Pair (if it does not exist)
 if [ ! -f "$SSH_KEY_FILE" ]; then
     echo "Generating SSH key for container at $SSH_KEY_FILE..."
     ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q -C "host-wrapper.key"
@@ -47,14 +42,6 @@ if [ ! -f "$SSH_KEY_FILE" ]; then
     chmod 600 "${SSH_KEY_FILE}.pub"
 fi
 
-# 4. Assemble the guest bundle: connection script, pinned host key, and the
-#    private key it authenticates with.
-#
-#    The host address is not written into the script. Guests resolve it from
-#    their own default route, because the container gateway address depends on
-#    the networks configured for the host system and is not the same on every
-#    machine. Host identity is pinned separately, under a fixed alias, so a
-#    changing address cannot weaken verification.
 echo "Assembling guest connection bundle in $GUEST_DIR..."
 sh "$SCRIPT_DIR/host-connect-setup.sh" "$GUEST_DIR" --key "$GUEST_KEY_NAME" || exit 1
 
@@ -63,15 +50,13 @@ chmod 600 "$GUEST_DIR/ssh/$GUEST_KEY_NAME"
 
 SSH_CONNECT_SCRIPT="$GUEST_DIR/host-proxy-ssh.sh"
 
-# This will install the host-wrapper to ~/.ssh.
-# It can equally well be installed e.g. to a project-specific location.
+# Any path works, a project-specific one included.
 GLOBAL_WRAPPER_PATH="$HOME/.ssh/host-wrapper"
 
 ABS_ALLOWLIST_PATH="$ALLOWLIST_FILE"
 AUTH_LINE=$(sh "$SCRIPT_DIR/host-authorized-key.sh" -n host-wrapper \
     "$GLOBAL_WRAPPER_PATH" "$ABS_ALLOWLIST_PATH" "${SSH_KEY_FILE}.pub") || exit 1
 
-# 5. Output instructions
 echo "--------------------------------------------------------"
 echo "Generic Host-Wrapper Setup Complete."
 echo "--------------------------------------------------------"

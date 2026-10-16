@@ -2,10 +2,8 @@
 
 # Invoked by host-proxy inside the guest to open the channel to host-wrapper.
 #
-# host-connect-setup.sh installs this file into a guest unchanged; the copy that
-# is maintained is share/host-proxy-ssh.sh in the host-wrapper repository.
-# Nothing here is host-specific: everything that varies lives in
-# ssh/host-wrapper.env, so edit that rather than this file.
+# Installed unchanged from share/host-proxy-ssh.sh in the host-wrapper
+# repository. Everything host-specific is in ssh/host-wrapper.env.
 
 # Relative paths below are resolved against this script's directory.
 cd "$(dirname "$0")" || exit 1
@@ -25,11 +23,8 @@ fi
 : "${HOST_KEY:=./ssh/id_ed25519}"
 : "${HOST_KEY_ALIAS:=host-wrapper}"
 
-# The container gateway address depends on the networks configured for the
-# host system, so it is read from the guest's routing table rather than
-# assumed. Only the first default route carrying a "via" is used: a guest can
-# hold several default routes, and one without a gateway (a point-to-point
-# link, say) is not the host.
+# The first default route with a "via": one without a gateway, a point-to-point
+# link say, is not the host.
 if [ -z "$HOST_GATEWAY" ]; then
     HOST_GATEWAY=$(ip route show default 2>/dev/null |
         awk '$1 == "default" { for (i = 2; i < NF; i++) if ($i == "via") { print $(i + 1); exit } }')
