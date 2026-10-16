@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-// A copy of host-wrapper.c's ParserContext, which has to stay in step with it.
+// A copy of protocol.c's ParserContext, which has to stay in step with it.
 typedef struct {
     int fd;
     const unsigned char *buf;

@@ -11,17 +11,20 @@ LDLIBS =
 
 TEST_HELPERS = tests/winsize-probe tests/run-on-pty
 
+# Included by host-wrapper.c, which builds as one translation unit.
+WRAPPER_MODULES = output.c protocol.c audit.c allowlist.c pty.c wrapper.c
+
 all: host-wrapper host-proxy
 
 .PHONY: all test test-connect test-linux check-posix fuzz fuzz-minimize fuzz-proxy fuzz-proxy-minimize clean
 
-host-wrapper: host-wrapper.c
+host-wrapper: host-wrapper.c $(WRAPPER_MODULES)
 	$(CC) $(CFLAGS) -o $@ host-wrapper.c $(LDLIBS)
 
 host-proxy: host-proxy.c
 	$(CC) $(CFLAGS) -o $@ host-proxy.c
 
-host-wrapper-test: host-wrapper.c
+host-wrapper-test: host-wrapper.c $(WRAPPER_MODULES)
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-wrapper.c $(LDLIBS)
 
 host-proxy-test: host-proxy.c
@@ -61,7 +64,7 @@ check-posix:
 	./check-posix.sh
 
 # Needs a clang with libFuzzer.
-host-wrapper-fuzzer: host-wrapper.c fuzz.c
+host-wrapper-fuzzer: host-wrapper.c $(WRAPPER_MODULES) fuzz.c
 	$(CLANG) $(CFLAGS) -DFUZZING -fsanitize=fuzzer,address -o $@ host-wrapper.c fuzz.c $(LDLIBS)
 
 fuzz: host-wrapper-fuzzer fuzz.dict
