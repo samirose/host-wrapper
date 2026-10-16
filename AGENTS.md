@@ -174,6 +174,10 @@ name.
 `README.md` and `examples/README.md` describe how the project behaves now. A
 reader arriving today should not have to parse what it used to do.
 
+- **A change to behaviour checks what describes it.** Before committing, read
+  what documents the code you changed: the README sections, `PROTOCOL.md`,
+  `docs/`, the usage text and the comments on and around it. Fix what no
+  longer holds in the same commit, so no commit leaves a description false.
 - **Do not justify a design by contrasting it with what it replaced.** Write
   "fails with a diagnostic naming the override", not "fails rather than falling
   back to a default that produced a timeout somewhere else". The reason
