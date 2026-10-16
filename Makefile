@@ -12,7 +12,7 @@ LDLIBS =
 TEST_HELPERS = tests/winsize-probe tests/run-on-pty
 
 # Included by host-wrapper.c, which builds as one translation unit.
-WRAPPER_MODULES = output.c protocol.c audit.c allowlist.c pty.c wrapper.c
+WRAPPER_MODULES = output.c protocol.h request.c audit.c allowlist.c pty.c wrapper.c
 
 # Included by host-proxy.c. A guest compiles build/host-proxy.c, which has them
 # in place of their includes.

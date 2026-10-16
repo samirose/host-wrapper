@@ -16,7 +16,8 @@
 
 // host-wrapper.c without main, and without pty.c: the fuzzer runs nothing.
 #include "output.c"
-#include "protocol.c"
+#include "protocol.h"
+#include "request.c"
 #include "audit.c"
 #include "allowlist.c"
 #include "wrapper.c"

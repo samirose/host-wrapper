@@ -35,10 +35,10 @@
 
 #include "output.c"
 
-// 0-124 belong to the target; see protocol.c.
+// 0-124 belong to the target; see protocol.h.
 #define EXIT_PROXY_ERROR 125
 
-// The first netstring of every request; protocol.c checks the same string.
+// The first netstring of every request; protocol.h defines the same string.
 #define PROTOCOL_MAGIC "HW1"
 
 // A tag byte and a 64 KiB chunk.

@@ -1,14 +1,6 @@
 #define MAX_ARGS 1024
 #define MAX_ARG_LEN 65536
 
-// The first netstring of every request; host-proxy.c writes the same string.
-#define PROTOCOL_MAGIC "HW1"
-
-// Shell convention: 0-124 belong to the target.
-#define EXIT_WRAPPER_ERROR 125
-#define EXIT_DENIED        126
-#define EXIT_EXEC_FAILED   127
-
 /**
  * Reads from buf when it is set, from fd otherwise.
  */
@@ -263,13 +255,3 @@ cleanup:
     free(argc_str);
     return target_argv;
 }
-
-#ifndef FUZZING
-static int write_frame(char tag, const void *data, size_t len) {
-    char head[32];
-    int head_len = snprintf(head, sizeof(head), "%zu:%c", len + 1, tag);
-    if (write_all(STDOUT_FILENO, head, (size_t)head_len) == -1) return -1;
-    if (write_all(STDOUT_FILENO, data, len) == -1) return -1;
-    return write_all(STDOUT_FILENO, ",", 1);
-}
-#endif

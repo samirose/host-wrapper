@@ -4,6 +4,14 @@
 #include <pty.h>
 #endif
 
+static int write_frame(char tag, const void *data, size_t len) {
+    char head[32];
+    int head_len = snprintf(head, sizeof(head), "%zu:%c", len + 1, tag);
+    if (write_all(STDOUT_FILENO, head, (size_t)head_len) == -1) return -1;
+    if (write_all(STDOUT_FILENO, data, len) == -1) return -1;
+    return write_all(STDOUT_FILENO, ",", 1);
+}
+
 /**
  * Forwards everything readable on master_fd, which must be O_NONBLOCK, as
  * frames tagged tag. Returns 1 once the stream is finished, 0 while it may
