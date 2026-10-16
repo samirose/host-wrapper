@@ -42,8 +42,7 @@
 #define MAX_FRAME (65536 + 1)
 
 /**
- * Robustly writes all data to a file descriptor, handling partial writes
- * and EINTR. Returns 0 on success, -1 on error.
+ * Returns 0 once all of buf is written, or -1 on error or with some of it unwritten.
  */
 int write_all(int fd, const void *buf, size_t count) {
     const char *ptr = buf;
@@ -60,10 +59,6 @@ int write_all(int fd, const void *buf, size_t count) {
     return (written == count) ? 0 : -1;
 }
 
-/**
- * Writes a string as a netstring to a file descriptor.
- * Format: [length]:[data],
- */
 int write_netstring(int fd, const char *data, size_t len) {
     char header[32];
     int header_len = snprintf(header, sizeof(header), "%zu:", len);
@@ -110,7 +105,11 @@ static int parse_status(const char *s, size_t len) {
     return n <= 255 ? n : -1;
 }
 
-// Returns 0, -1 on a malformed response, or -2 when sink failed.
+/**
+ * Decodes len more bytes of response, passing each output chunk to sink. Returns
+ * 0, -1 on a malformed response, or -2 when sink failed. d->state is FRAME_DONE
+ * once the status frame has arrived, with the status in d->exit_status.
+ */
 int decode_frames(FrameDecoder *d, const unsigned char *buf, size_t len, FrameSink sink) {
     size_t i = 0;
     while (i < len) {
@@ -207,9 +206,9 @@ static int read_response(int fd) {
 }
 
 /**
- * Child process logic: connects the request pipe to stdin and the response
- * pipe to stdout, and executes the SSH connection script.
- * The script is expected to be in the same directory as the proxy binary.
+ * Runs the connection script, HOST_PROXY_SSH_SCRIPT or else host-proxy-ssh.sh
+ * in proxy_dir, reading request_fd and writing response_fd. Never returns:
+ * exits 125 having reported why when the script cannot be run.
  */
 void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
     if (dup2(request_fd, STDIN_FILENO) == -1 || dup2(response_fd, STDOUT_FILENO) == -1) {
@@ -219,9 +218,6 @@ void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
     close(request_fd);
     close(response_fd);
 
-    // Construct the path to the connection script.
-    // Check for the HOST_PROXY_SSH_SCRIPT environment variable first,
-    // fallback to [proxy_dir]/host-proxy-ssh.sh.
     char script_path[PATH_MAX];
     const char *env_script = getenv("HOST_PROXY_SSH_SCRIPT");
     if (env_script && env_script[0] != '\0') {
@@ -231,7 +227,6 @@ void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
         snprintf(script_path, sizeof(script_path), "%s/host-proxy-ssh.sh", proxy_dir);
     }
 
-    // Execute the connection script.
     char *script_argv[] = {
         script_path, NULL
     };
@@ -242,15 +237,14 @@ void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
 }
 
 /**
- * Stdin pump logic: Reads from stdin and writes to the pipe.
- * Exits when stdin reaches EOF or the pipe is closed.
+ * Copies stdin to pipe_write_fd. Never returns: exits 0 once stdin ends or
+ * fails, or the pipe can no longer be written.
  */
 void execute_stdin_pump(int pipe_write_fd) {
     unsigned char buffer[4096];
     ssize_t n;
     while ((n = read(0, buffer, sizeof(buffer))) > 0) {
         if (write_all(pipe_write_fd, buffer, (size_t)n) == -1) {
-            // Broken pipe or error, exit pump cleanly
             close(pipe_write_fd);
             exit(0);
         }
@@ -260,11 +254,8 @@ void execute_stdin_pump(int pipe_write_fd) {
 }
 
 static int send_request(int fd, int argc, char *argv[]) {
-    // Get terminal size of the invoking environment. Any of the three standard
-    // descriptors will do, and all three have to be tried: piping input into a
-    // command leaves stdin a pipe while the terminal is still on stdout, and
-    // probing stdin alone would report the 80x24 default to a target that is
-    // about to draw on a terminal of some other size.
+    // Input piped into a command leaves the terminal on stdout, so all three
+    // descriptors are tried.
     struct winsize ws;
     int cols = 80;
     int rows = 24;
@@ -296,12 +287,14 @@ static int send_request(int fd, int argc, char *argv[]) {
 }
 
 /**
- * Parent process logic: sends the request, pumps stdin behind it, and relays
- * the response until the wrapper reports a status or the transport ends.
+ * Sends the request, pumps stdin behind it and relays the response. Returns the
+ * status host-wrapper reported, 141 when stdout closed, or 125 having reported
+ * why.
  */
 int execute_proxy_parent(int request_fd, int response_fd, pid_t child_pid,
                          int argc, char *argv[]) {
-    // Ignore SIGPIPE so processes can handle broken pipes via return values
+    // A closed pipe surfaces as EPIPE: on the request, so that the response is
+    // still read; on stdout, to exit 141 once the children are reaped.
     signal(SIGPIPE, SIG_IGN);
 
     // A wrapper that refuses a request may stop reading it part way, and its
@@ -322,7 +315,7 @@ int execute_proxy_parent(int request_fd, int response_fd, pid_t child_pid,
     int result = read_response(response_fd);
     close(response_fd);
 
-    // Clean up the pump if it is still waiting for input (e.g., from an open terminal).
+    // The pump may still be blocked reading a terminal.
     if (pump_pid > 0) {
         kill(pump_pid, SIGTERM);
         waitpid(pump_pid, NULL, 0);
@@ -347,7 +340,6 @@ int main(int argc, char *argv[]) {
         return EXIT_PROXY_ERROR;
     }
 
-    // Determine the directory of the host-proxy binary
     argv0_copy = strdup(argv[0]);
     if (!argv0_copy) {
         perror("strdup");
@@ -376,7 +368,6 @@ int main(int argc, char *argv[]) {
         close(request_fds[1]);
         close(response_fds[0]);
         execute_ssh_child(request_fds[0], response_fds[1], proxy_dir);
-        // execute_ssh_child never returns
     } else {
         close(request_fds[0]);
         close(response_fds[1]);
