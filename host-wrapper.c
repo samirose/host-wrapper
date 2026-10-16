@@ -59,19 +59,19 @@ int check_allowlist(const char *path) {
     FILE *fp = fopen(path, "r");
     if (!fp) {
         log_error("fopen allowlist: %s\n", strerror(errno));
-        return EXIT_WRAPPER_ERROR;
+        return EXIT_INTERNAL_ERROR;
     }
 
     char *workspace = workspace_dir(path);
     if (!workspace) {
         fclose(fp);
-        return EXIT_WRAPPER_ERROR;
+        return EXIT_INTERNAL_ERROR;
     }
 
     int entries = validate_allowlist(fp, path, workspace);
     free(workspace);
     fclose(fp);
-    if (entries < 0) return EXIT_WRAPPER_ERROR;
+    if (entries < 0) return EXIT_INTERNAL_ERROR;
 
     printf("%s: %d entr%s, no problems found\n", path, entries,
            entries == 1 ? "y" : "ies");
@@ -95,32 +95,32 @@ static int serve(int argc, char *argv[]) {
         switch (opt) {
         case 'l': log_path = optarg; break;
         case 'n': label = optarg; break;
-        default:  usage(argv[0]); return EXIT_WRAPPER_ERROR;
+        default:  usage(argv[0]); return EXIT_INTERNAL_ERROR;
         }
     }
 
     if (optind >= argc) {
         usage(argv[0]);
-        return EXIT_WRAPPER_ERROR;
+        return EXIT_INTERNAL_ERROR;
     }
     const char *allowlist_path = argv[optind];
 
     FILE *fp = fopen(allowlist_path, "r");
     if (!fp) {
         log_error("fopen allowlist: %s\n", strerror(errno));
-        return EXIT_WRAPPER_ERROR;
+        return EXIT_INTERNAL_ERROR;
     }
 
     char *workspace = workspace_dir(allowlist_path);
     if (!workspace) {
         fclose(fp);
-        return EXIT_WRAPPER_ERROR;
+        return EXIT_INTERNAL_ERROR;
     }
 
     if (validate_allowlist(fp, allowlist_path, workspace) < 0) {
         free(workspace);
         fclose(fp);
-        return EXIT_WRAPPER_ERROR;
+        return EXIT_INTERNAL_ERROR;
     }
 
     // Opened here, before the target's working directory is entered, so that
@@ -130,7 +130,7 @@ static int serve(int argc, char *argv[]) {
         if (default_audit_path(default_path, sizeof(default_path)) == -1) {
             free(workspace);
             fclose(fp);
-            return EXIT_WRAPPER_ERROR;
+            return EXIT_INTERNAL_ERROR;
         }
         log_path = default_path;
     }
@@ -139,7 +139,7 @@ static int serve(int argc, char *argv[]) {
     if (audit_fd == -1) {
         free(workspace);
         fclose(fp);
-        return EXIT_WRAPPER_ERROR;
+        return EXIT_INTERNAL_ERROR;
     }
 
     ParserContext ctx = { .fd = STDIN_FILENO, .buf = NULL, .size = 0, .pos = 0 };
@@ -163,7 +163,7 @@ int main(int argc, char *argv[]) {
     if (argc > 1 && strcmp(argv[1], "--check") == 0) {
         if (argc != 3) {
             usage(argv[0]);
-            return EXIT_WRAPPER_ERROR;
+            return EXIT_INTERNAL_ERROR;
         }
         return check_allowlist(argv[2]);
     }
@@ -173,6 +173,6 @@ int main(int argc, char *argv[]) {
     int ret = serve(argc, argv);
     char status[16];
     int len = snprintf(status, sizeof(status), "%d", ret);
-    if (write_frame('x', status, (size_t)len) == -1) return EXIT_WRAPPER_ERROR;
+    if (write_frame('x', status, (size_t)len) == -1) return EXIT_INTERNAL_ERROR;
     return ret;
 }

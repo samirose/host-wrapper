@@ -34,15 +34,7 @@
 #include <stdarg.h>
 
 #include "output.c"
-
-// 0-124 belong to the target; see protocol.h.
-#define EXIT_PROXY_ERROR 125
-
-// The first netstring of every request; protocol.h defines the same string.
-#define PROTOCOL_MAGIC "HW1"
-
-// A tag byte and a 64 KiB chunk.
-#define MAX_FRAME (65536 + 1)
+#include "protocol.h"
 
 int write_netstring(int fd, const char *data, size_t len) {
     char header[32];
@@ -168,7 +160,7 @@ static int read_response(int fd) {
         if (n < 0 && errno == EINTR) continue;
         if (n < 0) {
             log_error("read response: %s\n", strerror(errno));
-            return EXIT_PROXY_ERROR;
+            return EXIT_INTERNAL_ERROR;
         }
         if (n == 0) break;
         int decoded = decode_frames(&d, buf, (size_t)n, write_chunk);
@@ -176,16 +168,16 @@ static int read_response(int fd) {
             // As a process writing into a closed pipe would end by default.
             if (errno == EPIPE) return 128 + SIGPIPE;
             log_error("write: %s\n", strerror(errno));
-            return EXIT_PROXY_ERROR;
+            return EXIT_INTERNAL_ERROR;
         }
         if (decoded == -1) {
             log_error("Error: malformed response from host-wrapper\n");
-            return EXIT_PROXY_ERROR;
+            return EXIT_INTERNAL_ERROR;
         }
     }
     if (d.state != FRAME_DONE) {
         log_error("Error: transport failed before the command reported status\n");
-        return EXIT_PROXY_ERROR;
+        return EXIT_INTERNAL_ERROR;
     }
     return d.exit_status;
 }
@@ -198,7 +190,7 @@ static int read_response(int fd) {
 void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
     if (dup2(request_fd, STDIN_FILENO) == -1 || dup2(response_fd, STDOUT_FILENO) == -1) {
         log_error("dup2: %s\n", strerror(errno));
-        exit(EXIT_PROXY_ERROR);
+        exit(EXIT_INTERNAL_ERROR);
     }
     close(request_fd);
     close(response_fd);
@@ -218,7 +210,7 @@ void execute_ssh_child(int request_fd, int response_fd, const char *proxy_dir) {
 
     execvp(script_argv[0], script_argv);
     log_error("execvp failed for %s: %s\n", script_path, strerror(errno));
-    exit(EXIT_PROXY_ERROR);
+    exit(EXIT_INTERNAL_ERROR);
 }
 
 /**
@@ -310,7 +302,7 @@ int execute_proxy_parent(int request_fd, int response_fd, pid_t child_pid,
     while ((waited = waitpid(child_pid, NULL, 0)) == -1 && errno == EINTR) {}
     if (waited == -1) {
         log_error("waitpid: %s\n", strerror(errno));
-        return EXIT_PROXY_ERROR;
+        return EXIT_INTERNAL_ERROR;
     }
     return result;
 }
@@ -318,11 +310,11 @@ int execute_proxy_parent(int request_fd, int response_fd, pid_t child_pid,
 int main(int argc, char *argv[]) {
     char *proxy_dir = NULL;
     char *argv0_copy = NULL;
-    int result = EXIT_PROXY_ERROR;
+    int result = EXIT_INTERNAL_ERROR;
 
     if (argc < 2) {
         fprintf(stderr, "Usage: %s <command> [args...]\n", argv[0]);
-        return EXIT_PROXY_ERROR;
+        return EXIT_INTERNAL_ERROR;
     }
 
     argv0_copy = strdup(argv[0]);

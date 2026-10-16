@@ -1,14 +1,14 @@
 int run_wrapper(ParserContext *ctx, FILE *allowlist_fp, const AuditLog *audit,
                 const char *workspace) {
-    int ret = EXIT_WRAPPER_ERROR;
+    int ret = EXIT_INTERNAL_ERROR;
     char **target_argv = NULL;
     char *exec_path = NULL;
     int target_argc = 0;
 
     TerminalSize termsize;
-    if (parse_header(ctx, &termsize) == -1) return EXIT_WRAPPER_ERROR;
+    if (parse_header(ctx, &termsize) == -1) return EXIT_INTERNAL_ERROR;
     target_argv = parse_target_args(ctx, &target_argc);
-    if (!target_argv) return EXIT_WRAPPER_ERROR;
+    if (!target_argv) return EXIT_INTERNAL_ERROR;
 
     const char *why;
     exec_path = resolve_command(target_argv[0], workspace, &why);

@@ -46,7 +46,7 @@ static int drain_pty(int master_fd, char tag, const char *name) {
  * having reported why.
  */
 int execute_command_with_pty(const char *exec_path, char **target_argv, int target_argc, TerminalSize termsize, int has_stdin) {
-    int ret = EXIT_WRAPPER_ERROR;
+    int ret = EXIT_INTERNAL_ERROR;
     int master_out = -1, slave_out = -1;
     int master_err = -1, slave_err = -1;
     int status;
