@@ -165,7 +165,7 @@ static int apply_option(char *option, size_t len, TerminalSize *size,
  * Parses the header ahead of argv: the protocol magic, then key=value options
  * up to an empty netstring. A key is known or the request is refused, and none
  * may repeat, so the header cannot carry anything this wrapper would ignore.
- * Returns 0, or -1 having reported why.
+ * Returns 0, or -1 on failure, having reported why.
  */
 static int parse_header(ParserContext *ctx, TerminalSize *size) {
     size->cols = 80;

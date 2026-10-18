@@ -1,6 +1,6 @@
 /**
  * Creates the directories leading to path, each mode 0700. Returns 0, or -1
- * having reported why.
+ * on failure, having reported why.
  */
 static int make_parent_dirs(const char *path) {
     char dir[PATH_MAX];
@@ -30,7 +30,7 @@ static int make_parent_dirs(const char *path) {
 
 /**
  * Writes the default audit log path, under XDG_STATE_HOME or else
- * ~/.local/state, into buf. Returns 0, or -1 having reported why.
+ * ~/.local/state, into buf. Returns 0, or -1 on failure, having reported why.
  */
 static int default_audit_path(char *buf, size_t size) {
     const char *state = getenv("XDG_STATE_HOME");
@@ -58,7 +58,7 @@ static int default_audit_path(char *buf, size_t size) {
 
 /**
  * Opens path for appending, creating it and its directories. Returns the
- * descriptor, or -1 having reported why.
+ * descriptor, or -1 on failure, having reported why.
  */
 static int audit_open(const char *path) {
     if (make_parent_dirs(path) == -1) return -1;
