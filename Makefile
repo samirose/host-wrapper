@@ -53,21 +53,19 @@ test: host-wrapper-test host-proxy-test $(TEST_HELPERS)
 test-connect:
 	./test-connect.sh
 
-# The whole suite on Linux, whose PTYs behave differently from Darwin's, in a
-# VM run by Apple's container CLI.
-#
-# .git is dropped from the copy so the flake sees the working tree, and `clean`
-# runs because the copy carries the host's Mach-O binaries.
+# Runs the whole suite on Linux, whose PTYs behave differently from Darwin's,
+# in a VM under Apple's container CLI. The VM gets only the files git would
+# see, so no host binary or ignored artefact reaches it.
 test-linux:
 	@[ "$$(uname -s)" = Darwin ] || { echo "test-linux: macOS only. Run 'make test'."; exit 1; }
 	@command -v container >/dev/null 2>&1 || { echo "test-linux: needs Apple's container CLI."; exit 1; }
-	container run --rm \
-	    --mount "type=bind,source=$(CURDIR),target=/src,readonly=true" \
-	    $(LINUX_TEST_IMAGE) sh -c '\
+	git ls-files -z --cached --others --exclude-standard | \
+	    tar -c --no-xattrs --no-mac-metadata --null -T - -f - | \
+	    container run --rm -i $(LINUX_TEST_IMAGE) sh -c '\
 	        set -e; \
-	        mkdir /app && cp -R /src/. /app/ && cd /app && rm -rf .git; \
+	        mkdir /app && cd /app && tar -xf -; \
 	        export NIX_CONFIG="experimental-features = nix-command flakes"; \
-	        nix develop --command make clean test'
+	        nix develop --command make test'
 
 check-posix:
 	./check-posix.sh
