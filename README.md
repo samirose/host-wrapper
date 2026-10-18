@@ -206,7 +206,7 @@ While `host-wrapper` is originally designed with macOS development hosts in mind
 
 ### Supported Environments
 - **macOS / Darwin**: Host supported natively with no external compile flags required. Guest untested and out of scope for the tool.
-- **Linux**: Guest supported, host support untested. Compiling host-wrapper on glibc-based Linux distributions (e.g., Ubuntu, Debian, CentOS) requires linking the standard PTY library using `make LDLIBS="-lutil"`. Musl-based distributions (e.g., Alpine Linux) should compile natively without any flags.
+- **Linux**: Guest supported, host support untested. On glibc older than 2.34, `openpty` lives in libutil: `make LDLIBS=-lutil`. Newer glibc and musl (e.g., Alpine Linux) need no flags.
 - **BSD Systems (FreeBSD, OpenBSD, NetBSD, DragonFly BSD)**: Includes compile-time support for standard BSD PTY layouts, but has not been formally tested.
 
 ### Shell Script Portability

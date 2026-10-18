@@ -5,7 +5,7 @@ CLANG = clang
 # Linux image for `make test-linux`.
 LINUX_TEST_IMAGE = ghcr.io/nixos/nix
 
-# glibc needs LDLIBS=-lutil for openpty.
+# glibc older than 2.34 needs LDLIBS=-lutil for openpty.
 LDLIBS =
 
 TEST_HELPERS = tests/winsize-probe tests/run-on-pty
