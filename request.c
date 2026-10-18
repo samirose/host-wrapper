@@ -124,8 +124,8 @@ static int parse_dimension(const char *value) {
 }
 
 /**
- * Applies one key=value header option of len bytes to size. Returns 1, or 0
- * having reported why.
+ * Applies one key=value header option of len bytes to size. Returns 0, or -1
+ * on failure, having reported why.
  */
 static int apply_option(char *option, size_t len, TerminalSize *size,
                         int *seen_cols, int *seen_rows) {
@@ -133,7 +133,7 @@ static int apply_option(char *option, size_t len, TerminalSize *size,
     char *value = strchr(option, '=');
     if (strlen(option) != len || !value) {
         log_error("Error: Malformed header option\n");
-        return 0;
+        return -1;
     }
     *value++ = '\0';
 
@@ -147,18 +147,18 @@ static int apply_option(char *option, size_t len, TerminalSize *size,
         field = &size->rows;
     } else {
         log_error("Error: Unknown header option '%s'\n", option);
-        return 0;
+        return -1;
     }
     if (*seen) {
         log_error("Error: Repeated header option '%s'\n", option);
-        return 0;
+        return -1;
     }
     if ((*field = parse_dimension(value)) == -1) {
         log_error("Error: Invalid header option '%s=%s'\n", option, value);
-        return 0;
+        return -1;
     }
     *seen = 1;
-    return 1;
+    return 0;
 }
 
 /**
@@ -191,9 +191,9 @@ static int parse_header(ParserContext *ctx, TerminalSize *size) {
             return 0;
         }
 
-        int ok = apply_option(option, len, size, &seen_cols, &seen_rows);
+        int applied = apply_option(option, len, size, &seen_cols, &seen_rows);
         free(option);
-        if (!ok) return -1;
+        if (applied == -1) return -1;
     }
 }
 
