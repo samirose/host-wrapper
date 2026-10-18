@@ -2,8 +2,7 @@ CC = cc
 CFLAGS = -Wall -Wextra -O2
 CLANG = clang
 
-# Linux image for `make test-linux`. It supplies nix and nothing else; the
-# toolchain comes from the flake's devShell.
+# Linux image for `make test-linux`.
 LINUX_TEST_IMAGE = ghcr.io/nixos/nix
 
 # glibc needs LDLIBS=-lutil for openpty.
@@ -11,11 +10,10 @@ LDLIBS =
 
 TEST_HELPERS = tests/winsize-probe tests/run-on-pty
 
-# Included by host-wrapper.c, which builds as one translation unit.
+# Modules for the host-wrapper unity build.
 WRAPPER_MODULES = output.c protocol.h request.c audit.c allowlist.c pty.c wrapper.c
 
-# Included by host-proxy.c. A guest compiles build/host-proxy.c, which has them
-# in place of their includes.
+# Modules for the host-proxy unity build.
 PROXY_MODULES = output.c protocol.h
 
 all: host-wrapper host-proxy
@@ -37,7 +35,7 @@ build/host-proxy.c: host-proxy.c $(PROXY_MODULES)
 	! grep -n '^#include "' $@.tmp
 	mv $@.tmp $@
 
-# Built from what a guest compiles, so a broken amalgamation fails the suite.
+# Test the file guests compile, not host-proxy.c, so a broken amalgamation fails here.
 host-proxy-test: build/host-proxy.c
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ build/host-proxy.c
 
@@ -74,9 +72,9 @@ test-linux:
 check-posix:
 	./check-posix.sh
 
-# Needs a clang with libFuzzer. A fuzzer builds part of a program, so what only
-# main reaches goes unused there; the programs' own builds still report it.
-# Inlining static functions would merge the edges coverage is counted on.
+# Needs a clang with libFuzzer.
+# Omit unused function warnings, because fuzzing does not target everything.
+# Do not inline static functions: their edges would merge into the caller's.
 FUZZ_CFLAGS = $(CFLAGS) -Wno-unused-function -fno-inline
 
 host-wrapper-fuzzer: fuzz.c $(WRAPPER_MODULES)
