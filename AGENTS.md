@@ -13,8 +13,8 @@ Working notes for AI coding agents and contributors in this repository.
     make fuzz-proxy       # libFuzzer target for the response decoder
 
 `make test-connect` stubs out `ip` and `ssh`, so it needs neither a network, a
-container, nor a configured host. Building on glibc Linux needs
-`make LDLIBS="-lutil"`.
+container, nor a configured host. On glibc older than 2.34, `openpty` lives in
+libutil: `make test LDLIBS=-lutil`.
 
 ### The test harness
 
