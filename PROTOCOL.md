@@ -63,10 +63,10 @@ netstring whose first byte tags it:
 ```
 
 host-proxy writes each chunk to its own stdout or stderr as it arrives and
-exits with the status. The target's stdout and stderr are two pseudo-terminals,
-so chunks keep the order in which the wrapper drains them: exact when the
-target pauses between writes to different streams, not guaranteed for
-back-to-back writes to both.
+exits with the status. The target's stdout and stderr are two pipes, or two
+pseudo-terminals when its allowlist entry carries `+pty`, so chunks keep the
+order in which the wrapper drains them: exact when the target pauses between
+writes to different streams, not guaranteed for back-to-back writes to both.
 
 Every outcome ends in an `x` frame, the wrapper's own refusals included, so a
 response that ends without one is a transport failure: host-proxy exits 125

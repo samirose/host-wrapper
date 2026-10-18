@@ -43,8 +43,8 @@ static int run_wrapper(ParserContext *ctx, const Allowlist *allowlist,
         goto cleanup;
     }
 
-    ret = execute_command_with_pty(exec_path, target_argv, target_argc, termsize,
-                                   entry->has_stdin);
+    ret = execute_command(exec_path, target_argv, termsize, entry->has_stdin,
+                          entry->has_pty);
 #else
     (void)audit;
     (void)termsize;

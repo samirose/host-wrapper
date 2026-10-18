@@ -45,15 +45,23 @@ static char* resolve_command(const char *path, const char *workspace, const char
     return resolved;
 }
 
+typedef struct {
+    char *path;
+    int has_stdin;
+    int has_pty;
+} AllowlistEntry;
+
 /**
- * Reduces one allowlist line, in place, to the command it names, and reports
- * the options set on it. Returns NULL for a blank or comment-only line.
+ * Reduces one allowlist line, in place, to the command it names, and sets the
+ * options on entry, leaving its path alone. Returns NULL for a blank or
+ * comment-only line.
  *
  * *bad_option is the first token that is not an option this wrapper knows, and
  * points into line.
  */
-static char* allowlist_entry(char *line, int *has_stdin, const char **bad_option) {
-    *has_stdin = 0;
+static char* allowlist_entry(char *line, AllowlistEntry *entry, const char **bad_option) {
+    entry->has_stdin = 0;
+    entry->has_pty = 0;
     *bad_option = NULL;
 
     line[strcspn(line, "\r\n")] = 0;
@@ -81,18 +89,15 @@ static char* allowlist_entry(char *line, int *has_stdin, const char **bad_option
     char *token;
     while ((token = strtok_r(NULL, " \t\r\n", &saveptr)) != NULL) {
         if (strcmp(token, "+stdin") == 0) {
-            *has_stdin = 1;
+            entry->has_stdin = 1;
+        } else if (strcmp(token, "+pty") == 0) {
+            entry->has_pty = 1;
         } else if (!*bad_option) {
             *bad_option = token;
         }
     }
     return cmd_token;
 }
-
-typedef struct {
-    char *path;
-    int has_stdin;
-} AllowlistEntry;
 
 typedef struct {
     AllowlistEntry *entries;
@@ -124,10 +129,10 @@ static int load_allowlist(FILE *fp, const char *path, const char *workspace,
     list->count = 0;
 
     while (getline(&line, &linecap, fp) > 0) {
-        int has_stdin;
+        AllowlistEntry entry;
         const char *bad_option;
         lineno++;
-        char *cmd_token = allowlist_entry(line, &has_stdin, &bad_option);
+        char *cmd_token = allowlist_entry(line, &entry, &bad_option);
         if (!cmd_token) continue;
 
         if (bad_option) {
@@ -162,8 +167,8 @@ static int load_allowlist(FILE *fp, const char *path, const char *workspace,
             list->entries = entries;
             capacity = grown;
         }
-        list->entries[list->count++] =
-            (AllowlistEntry){ .path = resolved, .has_stdin = has_stdin };
+        entry.path = resolved;
+        list->entries[list->count++] = entry;
     }
 
     free(line);

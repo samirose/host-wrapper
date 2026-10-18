@@ -48,7 +48,7 @@
 #include "request.c"
 #include "audit.c"
 #include "allowlist.c"
-#include "pty.c"
+#include "execute.c"
 #include "wrapper.c"
 
 /**

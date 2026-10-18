@@ -96,7 +96,7 @@ sequenceDiagram
     end
     Proxy->>Pump: fork() stdin-pump subprocess
     Pump->>Wrapper: Pipe raw stdin stream bytes
-    Wrapper->>HostCmd: fork() & execv() inside Dual PTYs
+    Wrapper->>HostCmd: fork() & execv(), output on pipes or PTYs
     Wrapper->>HostCmd: Stream stdin
     HostCmd-->>Wrapper: Stream stdout/stderr
     Wrapper-->>Proxy: Framed stdout/stderr chunks, then the exit status
@@ -112,7 +112,7 @@ The target's standard input follows as raw bytes. Because the wrapper parses `st
 
 The response is framed the same way: each chunk of the target's stdout or stderr is a netstring tagged with its stream, and a final frame carries the exit status. host-proxy writes each chunk to its own stdout or stderr as it arrives, so the transport needs only one ordered byte stream in each direction. [PROTOCOL.md](PROTOCOL.md) specifies the format and what each side refuses.
 
-To guarantee terminal compliance and color support, approved host processes are spawned inside Dual PTY streams (separating stdout and stderr), mimicking native host execution.
+A target's stdout and stderr are two pipes, or two pseudo-terminals sized to the client's terminal when its allowlist entry carries `+pty`. On a pseudo-terminal `isatty()` is true, so a tool line-buffers its output and may colour it.
 
 ### Exit Status
 `host-proxy` exits with the target's status. Codes from 125 up follow the shell convention and report a command that did not run to completion:

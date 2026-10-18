@@ -11,7 +11,7 @@ LDLIBS =
 TEST_HELPERS = tests/winsize-probe tests/run-on-pty
 
 # Modules for the host-wrapper unity build.
-WRAPPER_MODULES = output.c protocol.h request.c audit.c allowlist.c pty.c wrapper.c
+WRAPPER_MODULES = output.c protocol.h request.c audit.c allowlist.c execute.c wrapper.c
 
 # Modules for the host-proxy unity build.
 PROXY_MODULES = output.c protocol.h

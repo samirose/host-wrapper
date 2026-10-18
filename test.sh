@@ -20,6 +20,8 @@ for helper in winsize-probe run-on-pty; do
     fi
     cp "$TEST_HELPER_DIR/$helper" "$TEST_DIR/$helper"
 done
+# The probe again, under an allowlist entry without +pty.
+ln -s winsize-probe "$TEST_DIR/winsize-probe-piped"
 
 # The example wrappers are host-side programs the wrapper execs, so the files
 # the examples ship are what the scenarios below run.
@@ -80,7 +82,8 @@ $UNAME_BIN
 $PRINTF_BIN
 $WC_BIN +stdin
 $CAT_BIN +stdin
-$TEST_DIR/winsize-probe
+$TEST_DIR/winsize-probe +pty
+$TEST_DIR/winsize-probe-piped
 EOF
 
 # The connector: host-wrapper itself, in place of ssh.
@@ -393,6 +396,9 @@ assert_equals "Window size survives a redirected stdin" "$WINSIZE_OUT" "120,40"
 "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe" \
     < /dev/null > "$CAPTURE_OUT" 2> "$CAPTURE_ERR"
 assert_equals "Window size defaults without a terminal" "$(cat "$CAPTURE_OUT")" "80,24"
+
+run_test_exit "Pipes without +pty" 1 "TIOCGWINSZ on fd 1 failed" "" \
+    "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe-piped"
 
 # Exactly one diagnostic: a child that unwound through main would repeat
 # whatever was buffered at the fork.

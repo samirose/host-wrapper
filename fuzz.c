@@ -14,7 +14,7 @@
 #include <limits.h>
 #include <stdarg.h>
 
-// host-wrapper.c without main, and without pty.c: the fuzzer runs nothing.
+// host-wrapper.c without main, and without execute.c: the fuzzer runs nothing.
 #include "output.c"
 #include "protocol.h"
 #include "request.c"
@@ -25,7 +25,7 @@
 static AuditLog audit = { .fd = -1, .label = "fuzz", .client = "-" };
 
 static char uname_path[] = "/usr/bin/uname";
-static AllowlistEntry uname_entry = { .path = uname_path, .has_stdin = 0 };
+static AllowlistEntry uname_entry = { .path = uname_path };
 static const Allowlist default_allowlist = { .entries = &uname_entry, .count = 1 };
 
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
