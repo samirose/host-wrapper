@@ -45,11 +45,6 @@ static char* resolve_command(const char *path, const char *workspace, const char
     return resolved;
 }
 
-typedef struct {
-    int allowed;
-    int has_stdin;
-} AllowlistResult;
-
 /**
  * Reduces one allowlist line, in place, to the command it names, and reports
  * the options set on it. Returns NULL for a blank or comment-only line.
@@ -94,66 +89,46 @@ static char* allowlist_entry(char *line, int *has_stdin, const char **bad_option
     return cmd_token;
 }
 
-/**
- * Looks up cmd, a resolved path, in the allowlist. An entry carrying an
- * unknown option never matches.
- */
-static AllowlistResult check_allowed(const char *cmd, FILE *fp, const char *workspace) {
-    AllowlistResult res = { .allowed = 0, .has_stdin = 0 };
-    if (!fp) return res;
+typedef struct {
+    char *path;
+    int has_stdin;
+} AllowlistEntry;
 
-    char *line = NULL;
-    size_t linecap = 0;
-    ssize_t linelen;
+typedef struct {
+    AllowlistEntry *entries;
+    size_t count;
+} Allowlist;
 
-    while ((linelen = getline(&line, &linecap, fp)) > 0) {
-        int line_has_stdin;
-        const char *bad_option;
-        char *cmd_token = allowlist_entry(line, &line_has_stdin, &bad_option);
-        if (!cmd_token || bad_option) continue;
-
-        // Resolved here rather than taken on trust from the startup pass: an
-        // entry that does not resolve cannot match, whatever that pass saw.
-        const char *why;
-        char *resolved = resolve_command(cmd_token, workspace, &why);
-        if (!resolved) continue;
-
-        int match = strcmp(cmd, resolved) == 0;
-        free(resolved);
-
-        if (match) {
-            res.allowed = 1;
-            res.has_stdin = line_has_stdin;
-            break;
-        }
-    }
-
-    free(line);
-    return res;
+static void free_allowlist(Allowlist *list) {
+    for (size_t i = 0; i < list->count; i++) free(list->entries[i].path);
+    free(list->entries);
+    list->entries = NULL;
+    list->count = 0;
 }
 
 /**
- * Reports every allowlist entry the wrapper cannot enforce as written, and
- * rewinds fp. Returns the number of entries, or -1 if any is unusable.
+ * Reads the allowlist from fp into list, each entry's command resolved.
  *
- * This is not a check-then-use window: the lookup reads the same stream and
- * resolves every entry itself, so this pass only decides whether to start.
+ * Returns 0, or -1 with list empty, having reported every entry the wrapper
+ * cannot enforce as written, or having run out of memory.
  */
-static int validate_allowlist(FILE *fp, const char *path, const char *workspace) {
+static int load_allowlist(FILE *fp, const char *path, const char *workspace,
+                          Allowlist *list) {
     char *line = NULL;
     size_t linecap = 0;
-    ssize_t linelen;
+    size_t capacity = 0;
     int lineno = 0;
-    int entries = 0;
     int bad = 0;
 
-    while ((linelen = getline(&line, &linecap, fp)) > 0) {
-        int line_has_stdin;
+    list->entries = NULL;
+    list->count = 0;
+
+    while (getline(&line, &linecap, fp) > 0) {
+        int has_stdin;
         const char *bad_option;
         lineno++;
-        char *cmd_token = allowlist_entry(line, &line_has_stdin, &bad_option);
+        char *cmd_token = allowlist_entry(line, &has_stdin, &bad_option);
         if (!cmd_token) continue;
-        entries++;
 
         if (bad_option) {
             log_error("Error: %s:%d: unknown option '%s'\n", path, lineno,
@@ -163,18 +138,50 @@ static int validate_allowlist(FILE *fp, const char *path, const char *workspace)
 
         const char *why;
         char *resolved = resolve_command(cmd_token, workspace, &why);
-        if (resolved) {
+        if (!resolved) {
+            log_error("Error: %s:%d: '%s' %s\n", path, lineno, cmd_token,
+                      why ? why : "cannot be resolved");
+            bad = 1;
+            continue;
+        }
+        if (bad) {
             free(resolved);
             continue;
         }
-        log_error("Error: %s:%d: '%s' %s\n", path, lineno, cmd_token,
-                  why ? why : "cannot be resolved");
-        bad = 1;
+
+        if (list->count == capacity) {
+            size_t grown = capacity ? capacity * 2 : 16;
+            AllowlistEntry *entries = realloc(list->entries,
+                                              grown * sizeof(*entries));
+            if (!entries) {
+                log_error("realloc: %s\n", strerror(errno));
+                free(resolved);
+                bad = 1;
+                break;
+            }
+            list->entries = entries;
+            capacity = grown;
+        }
+        list->entries[list->count++] =
+            (AllowlistEntry){ .path = resolved, .has_stdin = has_stdin };
     }
 
     free(line);
-    rewind(fp);
-    return bad ? -1 : entries;
+    if (bad) {
+        free_allowlist(list);
+        return -1;
+    }
+    return 0;
+}
+
+/**
+ * Returns the first entry naming cmd, a resolved path, or NULL.
+ */
+static const AllowlistEntry* find_entry(const Allowlist *list, const char *cmd) {
+    for (size_t i = 0; i < list->count; i++) {
+        if (strcmp(list->entries[i].path, cmd) == 0) return &list->entries[i];
+    }
+    return NULL;
 }
 
 /**

@@ -68,13 +68,15 @@ static int check_allowlist(const char *path) {
         return EXIT_INTERNAL_ERROR;
     }
 
-    int entries = validate_allowlist(fp, path, workspace);
+    Allowlist allowlist;
+    int loaded = load_allowlist(fp, path, workspace, &allowlist);
     free(workspace);
     fclose(fp);
-    if (entries < 0) return EXIT_INTERNAL_ERROR;
+    if (loaded == -1) return EXIT_INTERNAL_ERROR;
 
-    printf("%s: %d entr%s, no problems found\n", path, entries,
-           entries == 1 ? "y" : "ies");
+    printf("%s: %zu entr%s, no problems found\n", path, allowlist.count,
+           allowlist.count == 1 ? "y" : "ies");
+    free_allowlist(&allowlist);
     return 0;
 }
 
@@ -117,9 +119,11 @@ static int serve(int argc, char *argv[]) {
         return EXIT_INTERNAL_ERROR;
     }
 
-    if (validate_allowlist(fp, allowlist_path, workspace) < 0) {
+    Allowlist allowlist;
+    int loaded = load_allowlist(fp, allowlist_path, workspace, &allowlist);
+    fclose(fp);
+    if (loaded == -1) {
         free(workspace);
-        fclose(fp);
         return EXIT_INTERNAL_ERROR;
     }
 
@@ -128,8 +132,8 @@ static int serve(int argc, char *argv[]) {
     char default_path[PATH_MAX];
     if (!log_path) {
         if (default_audit_path(default_path, sizeof(default_path)) == -1) {
+            free_allowlist(&allowlist);
             free(workspace);
-            fclose(fp);
             return EXIT_INTERNAL_ERROR;
         }
         log_path = default_path;
@@ -137,8 +141,8 @@ static int serve(int argc, char *argv[]) {
 
     int audit_fd = audit_open(log_path);
     if (audit_fd == -1) {
+        free_allowlist(&allowlist);
         free(workspace);
-        fclose(fp);
         return EXIT_INTERNAL_ERROR;
     }
 
@@ -149,10 +153,10 @@ static int serve(int argc, char *argv[]) {
     audit_client(client, sizeof(client));
     AuditLog audit = { .fd = audit_fd, .label = label, .client = client };
 
-    int ret = run_wrapper(&ctx, fp, &audit, workspace);
+    int ret = run_wrapper(&ctx, &allowlist, &audit, workspace);
     close(audit_fd);
+    free_allowlist(&allowlist);
     free(workspace);
-    fclose(fp);
     return ret;
 }
 

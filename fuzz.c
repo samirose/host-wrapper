@@ -24,6 +24,10 @@
 
 static AuditLog audit = { .fd = -1, .label = "fuzz", .client = "-" };
 
+static char uname_path[] = "/usr/bin/uname";
+static AllowlistEntry uname_entry = { .path = uname_path, .has_stdin = 0 };
+static const Allowlist default_allowlist = { .entries = &uname_entry, .count = 1 };
+
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
     (void)argc; (void)argv;
     audit.fd = open("/dev/null", O_WRONLY);
@@ -45,14 +49,19 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
     const uint8_t *netstring_data = Data + 1 + allowlist_size;
     size_t netstring_size = Size - 1 - allowlist_size;
 
-    FILE *allowlist_fp = NULL;
-    if (allowlist_size > 0) {
-        allowlist_fp = fmemopen((void *)allowlist_data, allowlist_size, "r");
-    } else {
-        allowlist_fp = fmemopen((void *)"/usr/bin/uname\n", 15, "r");
+    // A list main would refuse to start on still lets the request half be
+    // fuzzed, against the default list.
+    Allowlist loaded = { .entries = NULL, .count = 0 };
+    const Allowlist *allowlist = &default_allowlist;
+    FILE *allowlist_fp = allowlist_size > 0
+        ? fmemopen((void *)allowlist_data, allowlist_size, "r")
+        : NULL;
+    if (allowlist_fp) {
+        if (load_allowlist(allowlist_fp, "fuzz", "/dummy/path", &loaded) == 0) {
+            allowlist = &loaded;
+        }
+        fclose(allowlist_fp);
     }
-
-    if (!allowlist_fp) return 0;
 
     ParserContext ctx = {
         .fd = -1,
@@ -61,8 +70,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {
         .pos = 0
     };
 
-    run_wrapper(&ctx, allowlist_fp, &audit, "/dummy/path");
+    run_wrapper(&ctx, allowlist, &audit, "/dummy/path");
 
-    fclose(allowlist_fp);
+    free_allowlist(&loaded);
     return 0;
 }

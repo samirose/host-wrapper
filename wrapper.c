@@ -1,4 +1,4 @@
-static int run_wrapper(ParserContext *ctx, FILE *allowlist_fp,
+static int run_wrapper(ParserContext *ctx, const Allowlist *allowlist,
                        const AuditLog *audit, const char *workspace) {
     int ret = EXIT_INTERNAL_ERROR;
     char **target_argv = NULL;
@@ -20,8 +20,8 @@ static int run_wrapper(ParserContext *ctx, FILE *allowlist_fp,
         goto cleanup;
     }
 
-    AllowlistResult allow_res = check_allowed(exec_path, allowlist_fp, workspace);
-    if (!allow_res.allowed) {
+    const AllowlistEntry *entry = find_entry(allowlist, exec_path);
+    if (!entry) {
         log_error("Error: Command '%s' not in allowlist\n", target_argv[0]);
         (void)audit_log(audit, "DENIED ", target_argc, target_argv);
         ret = EXIT_DENIED;
@@ -44,7 +44,7 @@ static int run_wrapper(ParserContext *ctx, FILE *allowlist_fp,
     }
 
     ret = execute_command_with_pty(exec_path, target_argv, target_argc, termsize,
-                                   allow_res.has_stdin);
+                                   entry->has_stdin);
 #else
     (void)audit;
     (void)termsize;
