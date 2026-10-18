@@ -1,0 +1,3 @@
+# Fuzzer inputs: whitespace in them is data.
+corpus/** -whitespace
+corpus-proxy/** -whitespace
