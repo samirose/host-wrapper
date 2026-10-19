@@ -11,5 +11,8 @@
 #define TAG_STDERR '2'
 #define TAG_STATUS 'x'
 
+// The largest terminal dimension, columns or rows, a request may carry.
+#define MAX_DIMENSION 4096
+
 // The longest frame: a tag byte and a 64 KiB chunk.
 #define MAX_FRAME (65536 + 1)

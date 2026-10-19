@@ -242,8 +242,8 @@ static int send_request(int fd, int argc, char *argv[]) {
         if (!isatty(probe[i])) continue;
         tty = 1;
         if (ioctl(probe[i], TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
-            cols = ws.ws_col;
-            rows = ws.ws_row;
+            cols = ws.ws_col < MAX_DIMENSION ? ws.ws_col : MAX_DIMENSION;
+            rows = ws.ws_row < MAX_DIMENSION ? ws.ws_row : MAX_DIMENSION;
             break;
         }
     }

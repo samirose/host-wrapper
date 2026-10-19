@@ -36,13 +36,14 @@ format, is refused with `protocol version mismatch: rebuild host-proxy`.
 | Key    | Value                                | Default |
 |--------|--------------------------------------|---------|
 | `tty`  | 1 if the client has a terminal, or 0 | 0       |
-| `cols` | Terminal columns, 1–65535            | 80      |
-| `rows` | Terminal rows, 1–65535               | 24      |
+| `cols` | Terminal columns, 1–4096             | 80      |
+| `rows` | Terminal rows, 1–4096                | 24      |
 
 Every option is optional. A key the wrapper does not know, a key given twice,
-an option without `=` or containing a NUL byte, and a value out of range each
-refuse the request. host-proxy sends all three: `tty=1` when any of its stdin,
-stdout and stderr is a terminal, and the size of the first that reports one.
+an option without `=` or containing a NUL byte, and a value out of range or
+with a leading zero each refuse the request. host-proxy sends all three:
+`tty=1` when any of its stdin, stdout and stderr is a terminal, and the size of
+the first that reports one, each dimension capped at 4096.
 
 ### Arguments
 

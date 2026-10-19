@@ -203,6 +203,9 @@ run_test_exit "Unversioned header" 125 "Error: protocol version mismatch: rebuil
 run_test_exit "Unknown header option" 125 "Error: Unknown header option 'term'" "3:HW1,10:term=xterm,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Repeated header option" 125 "Error: Repeated header option 'cols'" "3:HW1,7:cols=80,7:cols=90,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Invalid header option" 125 "Error: Invalid header option 'cols=0'" "3:HW1,6:cols=0,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Dimension over the limit" 125 "Error: Invalid header option 'cols=4097'" "3:HW1,9:cols=4097,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Dimension with a leading zero" 125 "Error: Invalid header option 'cols=080'" "3:HW1,8:cols=080,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Dimension with a non-digit" 125 "Error: Invalid header option 'rows=24x'" "3:HW1,8:rows=24x,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Invalid tty option" 125 "Error: Invalid header option 'tty=yes'" "3:HW1,7:tty=yes,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 # Without the terminator, argc is read as an option.
 run_test_exit "Missing option terminator" 125 "Error: Malformed header option" "3:HW1,7:cols=80,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
@@ -398,6 +401,13 @@ PROBE_BIN="$TEST_DIR/winsize-probe"
 PROBE_ARGV="1:1,${#PROBE_BIN}:$PROBE_BIN,"
 run_test "Window size defaults on a terminal" "80,24" "3:HW1,5:tty=1,0:,$PROBE_ARGV" \
     "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+
+run_test "Dimensions up to the limit" "4096,4096" "3:HW1,5:tty=1,9:cols=4096,9:rows=4096,0:,$PROBE_ARGV" \
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+
+WINSIZE_OUT=$(./run-on-pty 5000 40 "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe" \
+    < /dev/null 2> "$CAPTURE_ERR")
+assert_equals "A larger terminal is sent at the limit" "$WINSIZE_OUT" "4096,40"
 
 run_test_exit "Pipes without a client terminal" 1 "TIOCGWINSZ on fd 1 failed" "" \
     "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe"

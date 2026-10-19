@@ -110,18 +110,18 @@ static char* parse_netstring(ParserContext *ctx, size_t *out_len) {
 }
 
 /**
- * Parses a terminal dimension: decimal digits only, 1 to USHRT_MAX, since it
- * ends up in a struct winsize. Returns the value, or -1.
+ * Parses a terminal dimension: decimal digits without a leading zero, 1 to
+ * MAX_DIMENSION. Returns the value, or -1.
  */
 static int parse_dimension(const char *value) {
-    long n = 0;
-    if (*value == '\0') return -1;
+    int n = 0;
+    if (*value == '\0' || *value == '0') return -1;
     for (const char *p = value; *p; p++) {
         if (!isdigit((unsigned char)*p)) return -1;
         n = n * 10 + (*p - '0');
-        if (n > USHRT_MAX) return -1;
+        if (n > MAX_DIMENSION) return -1;
     }
-    return n > 0 ? (int)n : -1;
+    return n;
 }
 
 /**
