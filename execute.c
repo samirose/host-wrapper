@@ -80,7 +80,7 @@ static int open_stream(int use_pty, struct winsize *ws, int *read_fd,
  * status, 128+n when signal n killed it, or 125 having reported why.
  */
 static int execute_command(const char *exec_path, char **target_argv,
-                           TerminalSize termsize, int has_stdin, int use_pty) {
+                           Terminal term, int has_stdin, int use_pty) {
     int ret = EXIT_INTERNAL_ERROR;
     int out_read = -1, out_write = -1;
     int err_read = -1, err_write = -1;
@@ -88,8 +88,8 @@ static int execute_command(const char *exec_path, char **target_argv,
     pid_t pid = -1;
 
     struct winsize ws;
-    ws.ws_row = (unsigned short)termsize.rows;
-    ws.ws_col = (unsigned short)termsize.cols;
+    ws.ws_row = (unsigned short)term.rows;
+    ws.ws_col = (unsigned short)term.cols;
     ws.ws_xpixel = 0;
     ws.ws_ypixel = 0;
 

@@ -5,8 +5,8 @@ static int run_wrapper(ParserContext *ctx, const Allowlist *allowlist,
     char *exec_path = NULL;
     int target_argc = 0;
 
-    TerminalSize termsize;
-    if (parse_header(ctx, &termsize) == -1) return EXIT_INTERNAL_ERROR;
+    Terminal term;
+    if (parse_header(ctx, &term) == -1) return EXIT_INTERNAL_ERROR;
     target_argv = parse_target_args(ctx, &target_argc);
     if (!target_argv) return EXIT_INTERNAL_ERROR;
 
@@ -43,11 +43,11 @@ static int run_wrapper(ParserContext *ctx, const Allowlist *allowlist,
         goto cleanup;
     }
 
-    ret = execute_command(exec_path, target_argv, termsize, entry->has_stdin,
-                          entry->has_pty);
+    ret = execute_command(exec_path, target_argv, term, entry->has_stdin,
+                          entry->has_pty && term.tty);
 #else
     (void)audit;
-    (void)termsize;
+    (void)term;
     ret = 0;
 #endif
 

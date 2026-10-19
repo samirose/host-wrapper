@@ -97,6 +97,7 @@
 # Header tokens: the protocol magic, the option keys, and the end of options
 "3:HW1,"
 "HW1"
+"tty="
 "cols="
 "rows="
 "="

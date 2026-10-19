@@ -13,7 +13,8 @@ bytes:
 
 ```text
 3:HW1,          protocol magic and version
-7:cols=80,      options, key=value, in any order
+5:tty=1,        options, key=value, in any order
+7:cols=80,
 7:rows=24,
 0:,             end of options
 1:2,            argc
@@ -32,15 +33,16 @@ format, is refused with `protocol version mismatch: rebuild host-proxy`.
 
 ### Options
 
-| Key    | Value                 | Default |
-|--------|-----------------------|---------|
-| `cols` | Terminal columns, 1–65535 | 80  |
-| `rows` | Terminal rows, 1–65535    | 24  |
+| Key    | Value                                | Default |
+|--------|--------------------------------------|---------|
+| `tty`  | 1 if the client has a terminal, or 0 | 0       |
+| `cols` | Terminal columns, 1–65535            | 80      |
+| `rows` | Terminal rows, 1–65535               | 24      |
 
 Every option is optional. A key the wrapper does not know, a key given twice,
 an option without `=` or containing a NUL byte, and a value out of range each
-refuse the request. host-proxy sends both keys, taking the size from the first
-of its stdin, stdout and stderr that is a terminal.
+refuse the request. host-proxy sends all three: `tty=1` when any of its stdin,
+stdout and stderr is a terminal, and the size of the first that reports one.
 
 ### Arguments
 
@@ -64,9 +66,10 @@ netstring whose first byte tags it:
 
 host-proxy writes each chunk to its own stdout or stderr as it arrives and
 exits with the status. The target's stdout and stderr are two pipes, or two
-pseudo-terminals when its allowlist entry carries `+pty`, so chunks keep the
-order in which the wrapper drains them: exact when the target pauses between
-writes to different streams, not guaranteed for back-to-back writes to both.
+pseudo-terminals when `tty` is 1 and its allowlist entry carries `+pty`, so
+chunks keep the order in which the wrapper drains them: exact when the target
+pauses between writes to different streams, not guaranteed for back-to-back
+writes to both.
 
 Every outcome ends in an `x` frame, the wrapper's own refusals included, so a
 response that ends without one is a transport failure: host-proxy exits 125

@@ -12,9 +12,10 @@ typedef struct {
 } ParserContext;
 
 typedef struct {
+    int tty;
     int cols;
     int rows;
-} TerminalSize;
+} Terminal;
 
 /**
  * Returns the next byte, EOF at the end of input, or -2 on a read error.
@@ -124,11 +125,20 @@ static int parse_dimension(const char *value) {
 }
 
 /**
- * Applies one key=value header option of len bytes to size. Returns 0, or -1
- * on failure, having reported why.
+ * Parses a flag: "0" or "1". Returns the value, or -1.
  */
-static int apply_option(char *option, size_t len, TerminalSize *size,
-                        int *seen_cols, int *seen_rows) {
+static int parse_flag(const char *value) {
+    if (strcmp(value, "0") == 0) return 0;
+    if (strcmp(value, "1") == 0) return 1;
+    return -1;
+}
+
+/**
+ * Applies one key=value header option of len bytes to term, recording its key
+ * in seen. Returns 0, or -1 on failure, having reported why.
+ */
+static int apply_option(char *option, size_t len, Terminal *term,
+                        unsigned *seen) {
     // An embedded NUL would let "cols=80\0junk" read as "cols=80".
     char *value = strchr(option, '=');
     if (strlen(option) != len || !value) {
@@ -137,27 +147,34 @@ static int apply_option(char *option, size_t len, TerminalSize *size,
     }
     *value++ = '\0';
 
-    int *seen;
+    unsigned key;
     int *field;
-    if (strcmp(option, "cols") == 0) {
-        seen = seen_cols;
-        field = &size->cols;
+    int (*parse)(const char *);
+    if (strcmp(option, "tty") == 0) {
+        key = 1;
+        field = &term->tty;
+        parse = parse_flag;
+    } else if (strcmp(option, "cols") == 0) {
+        key = 2;
+        field = &term->cols;
+        parse = parse_dimension;
     } else if (strcmp(option, "rows") == 0) {
-        seen = seen_rows;
-        field = &size->rows;
+        key = 4;
+        field = &term->rows;
+        parse = parse_dimension;
     } else {
         log_error("Error: Unknown header option '%s'\n", option);
         return -1;
     }
-    if (*seen) {
+    if (*seen & key) {
         log_error("Error: Repeated header option '%s'\n", option);
         return -1;
     }
-    if ((*field = parse_dimension(value)) == -1) {
+    if ((*field = parse(value)) == -1) {
         log_error("Error: Invalid header option '%s=%s'\n", option, value);
         return -1;
     }
-    *seen = 1;
+    *seen |= key;
     return 0;
 }
 
@@ -167,9 +184,10 @@ static int apply_option(char *option, size_t len, TerminalSize *size,
  * may repeat, so the header cannot carry anything this wrapper would ignore.
  * Returns 0, or -1 on failure, having reported why.
  */
-static int parse_header(ParserContext *ctx, TerminalSize *size) {
-    size->cols = 80;
-    size->rows = 24;
+static int parse_header(ParserContext *ctx, Terminal *term) {
+    term->tty = 0;
+    term->cols = 80;
+    term->rows = 24;
 
     char *magic = parse_netstring(ctx, NULL);
     if (!magic) return -1;
@@ -180,8 +198,7 @@ static int parse_header(ParserContext *ctx, TerminalSize *size) {
         return -1;
     }
 
-    int seen_cols = 0;
-    int seen_rows = 0;
+    unsigned seen = 0;
     for (;;) {
         size_t len;
         char *option = parse_netstring(ctx, &len);
@@ -191,7 +208,7 @@ static int parse_header(ParserContext *ctx, TerminalSize *size) {
             return 0;
         }
 
-        int applied = apply_option(option, len, size, &seen_cols, &seen_rows);
+        int applied = apply_option(option, len, term, &seen);
         free(option);
         if (applied == -1) return -1;
     }

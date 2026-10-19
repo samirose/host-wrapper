@@ -40,7 +40,7 @@ LOCAL_HOST_PROXY="./host-proxy"
 LOCAL_HOST_WRAPPER="./host-wrapper"
 # What host-proxy sends ahead of argv without a terminal: the protocol magic,
 # the options, and the empty netstring that ends them.
-HEADER="3:HW1,7:cols=80,7:rows=24,0:,"
+HEADER="3:HW1,5:tty=0,7:cols=80,7:rows=24,0:,"
 
 # The allowlist matches verbatim, so a scenario has to name the binary the
 # wrapper will exec, and that path differs per system.
@@ -203,6 +203,7 @@ run_test_exit "Unversioned header" 125 "Error: protocol version mismatch: rebuil
 run_test_exit "Unknown header option" 125 "Error: Unknown header option 'term'" "3:HW1,10:term=xterm,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Repeated header option" 125 "Error: Repeated header option 'cols'" "3:HW1,7:cols=80,7:cols=90,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Invalid header option" 125 "Error: Invalid header option 'cols=0'" "3:HW1,6:cols=0,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Invalid tty option" 125 "Error: Invalid header option 'tty=yes'" "3:HW1,7:tty=yes,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 # Without the terminator, argc is read as an option.
 run_test_exit "Missing option terminator" 125 "Error: Malformed header option" "3:HW1,7:cols=80,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test "Header without options" "$UNAME_OUT" "3:HW1,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
@@ -393,12 +394,21 @@ WINSIZE_OUT=$(./run-on-pty 120 40 "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe" 
     < "$LARGE_IN" 2> "$CAPTURE_ERR")
 assert_equals "Window size survives a redirected stdin" "$WINSIZE_OUT" "120,40"
 
-"$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe" \
-    < /dev/null > "$CAPTURE_OUT" 2> "$CAPTURE_ERR"
-assert_equals "Window size defaults without a terminal" "$(cat "$CAPTURE_OUT")" "80,24"
+PROBE_BIN="$TEST_DIR/winsize-probe"
+PROBE_ARGV="1:1,${#PROBE_BIN}:$PROBE_BIN,"
+run_test "Window size defaults on a terminal" "80,24" "3:HW1,5:tty=1,0:,$PROBE_ARGV" \
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+
+run_test_exit "Pipes without a client terminal" 1 "TIOCGWINSZ on fd 1 failed" "" \
+    "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe"
 
 run_test_exit "Pipes without +pty" 1 "TIOCGWINSZ on fd 1 failed" "" \
     "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe-piped"
+
+PIPED_OUT=$(./run-on-pty 120 40 "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe-piped" \
+    < /dev/null 2> "$CAPTURE_ERR")
+assert_equals "Pipes at a terminal without +pty" "$?:$PIPED_OUT" \
+    "1:TIOCGWINSZ on fd 1 failed"
 
 # Exactly one diagnostic: a child that unwound through main would repeat
 # whatever was buffered at the fork.

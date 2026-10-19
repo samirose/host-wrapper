@@ -234,22 +234,27 @@ static int send_request(int fd, int argc, char *argv[]) {
     // Input piped into a command leaves the terminal on stdout, so all three
     // descriptors are tried.
     struct winsize ws;
+    int tty = 0;
     int cols = 80;
     int rows = 24;
     int probe[] = { STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO };
     for (size_t i = 0; i < sizeof(probe) / sizeof(probe[0]); i++) {
+        if (!isatty(probe[i])) continue;
+        tty = 1;
         if (ioctl(probe[i], TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
             cols = ws.ws_col;
             rows = ws.ws_row;
             break;
         }
     }
+    char tty_opt[8];
     char cols_opt[32];
     char rows_opt[32];
+    snprintf(tty_opt, sizeof(tty_opt), "tty=%d", tty);
     snprintf(cols_opt, sizeof(cols_opt), "cols=%d", cols);
     snprintf(rows_opt, sizeof(rows_opt), "rows=%d", rows);
     // The magic, the options, and the empty netstring that ends them.
-    const char *header[] = { PROTOCOL_MAGIC, cols_opt, rows_opt, "" };
+    const char *header[] = { PROTOCOL_MAGIC, tty_opt, cols_opt, rows_opt, "" };
     for (size_t i = 0; i < sizeof(header) / sizeof(header[0]); i++) {
         if (write_netstring(fd, header[i], strlen(header[i])) == -1) return -1;
     }
