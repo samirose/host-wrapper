@@ -463,6 +463,83 @@ assert_equals "Exec failure reported once" "$(grep -c 'execv:' "$CAPTURE_ERR")" 
 
 run_test_exit "Signal exits 128+n" 143 "" "" "$LOCAL_HOST_PROXY" "$SH_BIN" -c 'kill -TERM $$'
 
+# A shell ignoring a signal it inherited ignored cannot catch it, so this shows
+# the wrapper's own SIGPIPE disposition does not reach the target.
+run_test_exit "Target keeps the default SIGPIPE" 141 "" "" "$LOCAL_HOST_PROXY" "$SH_BIN" -c 'kill -PIPE $$; echo survived'
+
+# wait_until <seconds> <command...>: retries the command every tenth of a
+# second until it succeeds or the time runs out.
+wait_until() {
+    _tries=$(($1 * 10))
+    shift
+    while [ "$_tries" -gt 0 ]; do
+        "$@" && return 0
+        sleep 0.1
+        _tries=$((_tries - 1))
+    done
+    return 1
+}
+
+not_running() {
+    ! kill -0 "$1" 2>/dev/null
+}
+
+# start_silent_target <script>: runs a target that writes nothing through
+# host-proxy in the background, setting PROXY_PID and, once the target is up,
+# TARGET_PID and WRAPPER_PID. The script runs after the pid files are written.
+start_silent_target() {
+    rm -f target.pid wrapper.pid got-hup
+    "$LOCAL_HOST_PROXY" "$SH_BIN" -c "echo \$PPID > wrapper.pid; echo \$\$ > target.pid; $1" \
+        < /dev/null > /dev/null 2>&1 &
+    PROXY_PID=$!
+    wait_until 5 test -s target.pid
+    TARGET_PID=$(cat target.pid)
+    WRAPPER_PID=$(cat wrapper.pid)
+}
+
+# Leaves nothing running, whatever the scenario's outcome.
+stop_silent_target() {
+    kill -KILL "$TARGET_PID" "$WRAPPER_PID" "$PROXY_PID" 2>/dev/null
+    wait "$PROXY_PID" 2>/dev/null
+}
+
+TRAP_HUP='trap "echo hup > got-hup; exit 129" HUP; while :; do sleep 0.1; done'
+
+start_silent_target "$TRAP_HUP"
+kill -TERM "$PROXY_PID"
+if wait_until 5 test -f got-hup; then
+    report "A vanished client hangs up the target" yes
+else
+    report "A vanished client hangs up the target" no "  The target saw no SIGHUP"
+fi
+stop_silent_target
+
+start_silent_target "$TRAP_HUP"
+kill -TERM "$WRAPPER_PID"
+wait "$PROXY_PID"
+assert_equals "A terminated wrapper hangs up the target" "$?:$(cat got-hup 2>/dev/null)" "129:hup"
+stop_silent_target
+
+start_silent_target 'sleep 60 & echo $! > child.pid; wait'
+wait_until 5 test -s child.pid
+kill -TERM "$PROXY_PID"
+if wait_until 5 not_running "$(cat child.pid)"; then
+    report "A hangup reaches the target's children" yes
+else
+    report "A hangup reaches the target's children" no "  The target's child is still running"
+    kill "$(cat child.pid)" 2>/dev/null
+fi
+stop_silent_target
+
+start_silent_target 'trap "" HUP; while :; do sleep 0.1; done'
+kill -TERM "$PROXY_PID"
+if wait_until 8 not_running "$TARGET_PID"; then
+    report "A target ignoring SIGHUP is killed" yes
+else
+    report "A target ignoring SIGHUP is killed" no "  The target is still running"
+fi
+stop_silent_target
+
 run_test_exit "Missing allowlist exits 125" 125 "fopen allowlist:" "" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" ./no-such-allowlist
 
 # The entry and the request resolve against the allowlist directory, so a

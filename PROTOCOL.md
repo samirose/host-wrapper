@@ -78,6 +78,10 @@ chunks keep the order in which the wrapper drains them: exact when the target
 pauses between writes to different streams, not guaranteed for back-to-back
 writes to both.
 
+Closing the response stream before the `x` frame hangs the target up: the
+wrapper sends its process group SIGHUP, and SIGKILL 5 seconds later if it has
+not exited.
+
 Every outcome ends in an `x` frame, the wrapper's own refusals included, so a
 response that ends without one is a transport failure: host-proxy exits 125
 with `transport failed before the command reported status`. It also exits 125

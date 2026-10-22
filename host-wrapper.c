@@ -38,6 +38,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <poll.h>
+#include <signal.h>
 #include <fcntl.h>
 #include <limits.h>
 
