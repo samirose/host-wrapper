@@ -84,7 +84,7 @@ sequenceDiagram
     participant HostCmd as Host /usr/bin/wc
 
     Guest->>Proxy: Execute: /usr/bin/wc -l
-    Proxy->>Proxy: Format netstrings: 3:HW1,5:tty=1,7:cols=80,7:rows=24,0:,1:2,11:/usr/bin/wc,2:-l,
+    Proxy->>Proxy: Format netstrings: 3:HW1,5:tty=7,7:cols=80,7:rows=24,0:,1:2,11:/usr/bin/wc,2:-l,
     Proxy->>SSH: Connect with restricted SSH key
     SSH->>Wrapper: Launch host-wrapper [-n label] [-l log] [allowlist_path]
     Proxy->>Wrapper: Pipe the netstring header over stdin
@@ -106,13 +106,13 @@ sequenceDiagram
 ### Request and Streams
 host-proxy sends a header of netstrings (format: `[length]:[payload],`): a protocol version, keyed options saying whether the client has a terminal and its size, then `argc` and `argv`. Executing `/usr/bin/wc -l` sends:
 ```text
-3:HW1,5:tty=1,7:cols=80,7:rows=24,0:,1:2,11:/usr/bin/wc,2:-l,
+3:HW1,5:tty=7,7:cols=80,7:rows=24,0:,1:2,11:/usr/bin/wc,2:-l,
 ```
 The target's standard input follows as raw bytes. Because the wrapper parses `stdin` byte-by-byte up to the exact end of the header, the invoked target process natively inherits the remaining raw bytes on the standard input file descriptor.
 
 The response is framed the same way: each chunk of the target's stdout or stderr is a netstring tagged with its stream, and a final frame carries the exit status. host-proxy writes each chunk to its own stdout or stderr as it arrives, so the transport needs only one ordered byte stream in each direction. [PROTOCOL.md](PROTOCOL.md) specifies the format and what each side refuses.
 
-A target's stdout and stderr are two pipes, or two pseudo-terminals sized to the client's terminal when the client has one and the target's allowlist entry carries `+pty`. On a pseudo-terminal `isatty()` is true, so a tool line-buffers its output and may colour it.
+A target's stdout and stderr are pipes, unless its allowlist entry carries `+pty`. Then each of them that is a terminal on the client goes on one pseudo-terminal, sized to the client's, and the other stays a pipe. On a pseudo-terminal `isatty()` is true, so a tool line-buffers its output and may colour it, and stdout and stderr sharing one keep the order they were written in, as on a local terminal.
 
 ### Exit Status
 `host-proxy` exits with the target's status. Codes from 125 up follow the shell convention and report a command that did not run to completion:

@@ -43,8 +43,9 @@ static int run_wrapper(ParserContext *ctx, const Allowlist *allowlist,
         goto cleanup;
     }
 
+    int on_pty = entry->has_pty ? term.tty & (TTY_STDOUT | TTY_STDERR) : 0;
     ret = execute_command(exec_path, target_argv, term, entry->has_stdin,
-                          entry->has_pty && term.tty);
+                          on_pty);
 #else
     (void)audit;
     (void)term;

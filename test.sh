@@ -73,6 +73,8 @@ ID_BIN=$(find_bin id)
 FALSE_BIN=$(find_bin false)
 CAT_BIN=$(find_bin cat)
 SH_BIN=$(find_bin sh)
+# A shell under an entry with +pty, to report what its streams are.
+ln -s "$SH_BIN" "$TEST_DIR/sh-pty"
 PWD_BIN=$(find_bin pwd)
 LS_BIN=$(find_bin ls)
 UNAME_OUT=$(uname -s)
@@ -84,6 +86,7 @@ $WC_BIN +stdin
 $CAT_BIN +stdin
 $TEST_DIR/winsize-probe +pty
 $TEST_DIR/winsize-probe-piped
+$TEST_DIR/sh-pty +pty
 EOF
 
 # The connector: host-wrapper itself, in place of ssh.
@@ -207,6 +210,7 @@ run_test_exit "Dimension over the limit" 125 "Error: Invalid header option 'cols
 run_test_exit "Dimension with a leading zero" 125 "Error: Invalid header option 'cols=080'" "3:HW1,8:cols=080,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Dimension with a non-digit" 125 "Error: Invalid header option 'rows=24x'" "3:HW1,8:rows=24x,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Invalid tty option" 125 "Error: Invalid header option 'tty=yes'" "3:HW1,7:tty=yes,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Unknown tty bit" 125 "Error: Invalid header option 'tty=8'" "3:HW1,5:tty=8,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 # Without the terminator, argc is read as an option.
 run_test_exit "Missing option terminator" 125 "Error: Malformed header option" "3:HW1,7:cols=80,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test "Header without options" "$UNAME_OUT" "3:HW1,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
@@ -326,7 +330,7 @@ fi
 
 # Writes to the two streams keep their order once the target
 # pauses between them. Back-to-back writes to both may arrive in either order:
-# they come off two pseudo-terminals.
+# they come off two pipes.
 ALTERNATE='echo OUT1; sleep 0.2; echo ERR1 >&2; sleep 0.2; echo OUT2; sleep 0.2; echo ERR2 >&2'
 "$LOCAL_HOST_PROXY" "$SH_BIN" -c "$ALTERNATE" > "$OUT_FILE" 2>&1
 assert_equals "Alternating streams keep their order" "$(cat "$OUT_FILE")" "OUT1
@@ -399,10 +403,10 @@ assert_equals "Window size survives a redirected stdin" "$WINSIZE_OUT" "120,40"
 
 PROBE_BIN="$TEST_DIR/winsize-probe"
 PROBE_ARGV="1:1,${#PROBE_BIN}:$PROBE_BIN,"
-run_test "Window size defaults on a terminal" "80,24" "3:HW1,5:tty=1,0:,$PROBE_ARGV" \
+run_test "Window size defaults on a terminal" "80,24" "3:HW1,5:tty=2,0:,$PROBE_ARGV" \
     "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
-run_test "Dimensions up to the limit" "4096,4096" "3:HW1,5:tty=1,9:cols=4096,9:rows=4096,0:,$PROBE_ARGV" \
+run_test "Dimensions up to the limit" "4096,4096" "3:HW1,5:tty=2,9:cols=4096,9:rows=4096,0:,$PROBE_ARGV" \
     "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 
 WINSIZE_OUT=$(./run-on-pty 5000 40 "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe" \
@@ -419,6 +423,36 @@ PIPED_OUT=$(./run-on-pty 120 40 "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe-pip
     < /dev/null 2> "$CAPTURE_ERR")
 assert_equals "Pipes at a terminal without +pty" "$?:$PIPED_OUT" \
     "1:TIOCGWINSZ on fd 1 failed"
+
+_run_test_base "Pipes for a terminal on stdin alone" 1 out "2TIOCGWINSZ on fd 1 failed" \
+    "3:HW1,5:tty=1,0:,$PROBE_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+
+# Each of the target's output streams is on the terminal exactly when
+# host-proxy's is.
+STREAM_KINDS='[ -t 1 ] && o=terminal || o=pipe; [ -t 2 ] && e=terminal || e=pipe
+echo "stdout $o"; echo "stderr $e" >&2'
+
+SHARED_OUT=$(./run-on-pty 120 40 "$LOCAL_HOST_PROXY" "$TEST_DIR/sh-pty" \
+    -c 'tty <&1; tty <&2' < /dev/null)
+case "$SHARED_OUT" in
+    /dev/*)
+        if [ "$(printf '%s\n' "$SHARED_OUT" | sort -u | wc -l | tr -d ' ')" = 1 ]; then
+            report "Stdout and stderr share one terminal" yes
+        else
+            report "Stdout and stderr share one terminal" no "  Devices: $SHARED_OUT"
+        fi ;;
+    *) report "Stdout and stderr share one terminal" no "  Output: $SHARED_OUT" ;;
+esac
+
+ON_TERMINAL=$(./run-on-pty 120 40 "$SH_BIN" -c 'exec "$@" 2> "$0"' "$ERR_FILE" \
+    "$LOCAL_HOST_PROXY" "$TEST_DIR/sh-pty" -c "$STREAM_KINDS" < /dev/null)
+assert_equals "A redirected stderr stays a pipe" "$ON_TERMINAL/$(cat "$ERR_FILE")" \
+    "stdout terminal/stderr pipe"
+
+ON_TERMINAL=$(./run-on-pty 120 40 "$SH_BIN" -c 'exec "$@" > "$0"' "$OUT_FILE" \
+    "$LOCAL_HOST_PROXY" "$TEST_DIR/sh-pty" -c "$STREAM_KINDS" < /dev/null)
+assert_equals "A redirected stdout stays a pipe" "$ON_TERMINAL/$(cat "$OUT_FILE")" \
+    "stderr terminal/stdout pipe"
 
 # Exactly one diagnostic: a child that unwound through main would repeat
 # whatever was buffered at the fork.

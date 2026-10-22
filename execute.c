@@ -41,47 +41,47 @@ static int drain_stream(int fd, char tag, const char *name) {
 }
 
 /**
- * Opens one of the target's output streams: a raw PTY of size ws, or a pipe.
- * Sets *read_fd, O_NONBLOCK, for the wrapper and *write_fd for the target.
- * Returns 0, or -1 on failure, having reported why.
+ * Opens a raw PTY of size ws. Sets *read_fd, the master, for the wrapper and
+ * *write_fd, the slave, for the target. Returns 0, or -1 having reported why.
  */
-static int open_stream(int use_pty, struct winsize *ws, int *read_fd,
-                       int *write_fd, const char *name) {
-    if (use_pty) {
-        if (openpty(read_fd, write_fd, NULL, NULL, ws) == -1) {
-            log_error("openpty %s: %s\n", name, strerror(errno));
-            return -1;
-        }
-        struct termios ios;
-        if (tcgetattr(*write_fd, &ios) == 0) {
-            cfmakeraw(&ios);
-            tcsetattr(*write_fd, TCSANOW, &ios);
-        }
-    } else {
-        int fds[2];
-        if (pipe(fds) == -1) {
-            log_error("pipe %s: %s\n", name, strerror(errno));
-            return -1;
-        }
-        *read_fd = fds[0];
-        *write_fd = fds[1];
-    }
-
-    if (fcntl(*read_fd, F_SETFL, O_NONBLOCK) == -1) {
-        log_error("fcntl O_NONBLOCK: %s\n", strerror(errno));
+static int open_pty(struct winsize *ws, int *read_fd, int *write_fd) {
+    if (openpty(read_fd, write_fd, NULL, NULL, ws) == -1) {
+        log_error("openpty: %s\n", strerror(errno));
         return -1;
+    }
+    struct termios ios;
+    if (tcgetattr(*write_fd, &ios) == 0) {
+        cfmakeraw(&ios);
+        tcsetattr(*write_fd, TCSANOW, &ios);
     }
     return 0;
 }
 
 /**
- * Runs the target with stdout and stderr each on a PTY of its own when use_pty
- * is set, on a pipe otherwise, forwarding each as frames. Returns its exit
- * status, 128+n when signal n killed it, or 125 having reported why.
+ * Opens a pipe for one of the target's output streams. Sets *read_fd for the
+ * wrapper and *write_fd for the target. Returns 0, or -1 having reported why.
+ */
+static int open_pipe(int *read_fd, int *write_fd, const char *name) {
+    int fds[2];
+    if (pipe(fds) == -1) {
+        log_error("pipe %s: %s\n", name, strerror(errno));
+        return -1;
+    }
+    *read_fd = fds[0];
+    *write_fd = fds[1];
+    return 0;
+}
+
+/**
+ * Runs the target with the output streams named by the TTY_ bits in on_pty
+ * sharing one PTY, and each other output stream on a pipe of its own,
+ * forwarding each as frames. Returns its exit status, 128+n when signal n
+ * killed it, or 125 having reported why.
  */
 static int execute_command(const char *exec_path, char **target_argv,
-                           Terminal term, int has_stdin, int use_pty) {
+                           Terminal term, int has_stdin, int on_pty) {
     int ret = EXIT_INTERNAL_ERROR;
+    int pty_read = -1, pty_write = -1;
     int out_read = -1, out_write = -1;
     int err_read = -1, err_write = -1;
     int status;
@@ -93,9 +93,41 @@ static int execute_command(const char *exec_path, char **target_argv,
     ws.ws_xpixel = 0;
     ws.ws_ypixel = 0;
 
-    if (open_stream(use_pty, &ws, &out_read, &out_write, "stdout") == -1 ||
-        open_stream(use_pty, &ws, &err_read, &err_write, "stderr") == -1) {
+    if ((on_pty && open_pty(&ws, &pty_read, &pty_write) == -1) ||
+        (!(on_pty & TTY_STDOUT) && open_pipe(&out_read, &out_write, "stdout") == -1) ||
+        (!(on_pty & TTY_STDERR) && open_pipe(&err_read, &err_write, "stderr") == -1)) {
         goto execution_cleanup;
+    }
+
+    // At most two: the PTY carries at least one stream whenever it exists.
+    struct {
+        char tag;
+        const char *name;
+    } streams[2];
+    struct pollfd fds[2];
+    int open_streams = 0;
+    if (pty_read != -1) {
+        streams[open_streams].tag = on_pty & TTY_STDOUT ? TAG_STDOUT : TAG_STDERR;
+        streams[open_streams].name = "terminal";
+        fds[open_streams++].fd = pty_read;
+    }
+    if (out_read != -1) {
+        streams[open_streams].tag = TAG_STDOUT;
+        streams[open_streams].name = "stdout";
+        fds[open_streams++].fd = out_read;
+    }
+    if (err_read != -1) {
+        streams[open_streams].tag = TAG_STDERR;
+        streams[open_streams].name = "stderr";
+        fds[open_streams++].fd = err_read;
+    }
+    const int nstreams = open_streams;
+    for (int i = 0; i < nstreams; i++) {
+        fds[i].events = POLLIN;
+        if (fcntl(fds[i].fd, F_SETFL, O_NONBLOCK) == -1) {
+            log_error("fcntl O_NONBLOCK: %s\n", strerror(errno));
+            goto execution_cleanup;
+        }
     }
 
     pid = fork();
@@ -105,8 +137,8 @@ static int execute_command(const char *exec_path, char **target_argv,
     }
 
     if (pid == 0) {
-        dup2(out_write, STDOUT_FILENO);
-        dup2(err_write, STDERR_FILENO);
+        dup2(on_pty & TTY_STDOUT ? pty_write : out_write, STDOUT_FILENO);
+        dup2(on_pty & TTY_STDERR ? pty_write : err_write, STDERR_FILENO);
 
         if (!has_stdin) {
             int fd_null = open("/dev/null", O_RDONLY);
@@ -118,8 +150,11 @@ static int execute_command(const char *exec_path, char **target_argv,
             }
         }
 
-        close(out_read); close(out_write);
-        close(err_read); close(err_write);
+        int inherited[] = { pty_read, pty_write, out_read, out_write,
+                            err_read, err_write };
+        for (size_t i = 0; i < sizeof(inherited) / sizeof(inherited[0]); i++) {
+            if (inherited[i] != -1) close(inherited[i]);
+        }
 
         // The file is the resolved path; argv[0] stays as the request wrote it.
         execv(exec_path, target_argv);
@@ -129,35 +164,18 @@ static int execute_command(const char *exec_path, char **target_argv,
         _exit(EXIT_EXEC_FAILED);
     }
 
-    close(out_write); out_write = -1;
-    close(err_write); err_write = -1;
-
-    // The frame tag for each stream's output, indexed in step with fds below.
-    static const struct {
-        char tag;
-        const char *name;
-    } streams[] = {
-        { TAG_STDOUT, "stdout" },
-        { TAG_STDERR, "stderr" },
-    };
-    enum { NSTREAMS = sizeof(streams) / sizeof(streams[0]) };
-
-    struct pollfd fds[NSTREAMS];
-    fds[0].fd = out_read;
-    fds[0].events = POLLIN;
-    fds[1].fd = err_read;
-    fds[1].events = POLLIN;
-
-    int open_streams = NSTREAMS;
+    if (pty_write != -1) { close(pty_write); pty_write = -1; }
+    if (out_write != -1) { close(out_write); out_write = -1; }
+    if (err_write != -1) { close(err_write); err_write = -1; }
 
     while (open_streams > 0) {
-        if (poll(fds, NSTREAMS, -1) < 0) {
+        if (poll(fds, (nfds_t)nstreams, -1) < 0) {
             if (errno == EINTR) continue;
             log_error("poll: %s\n", strerror(errno));
             break;
         }
 
-        for (int i = 0; i < NSTREAMS; i++) {
+        for (int i = 0; i < nstreams; i++) {
             if (fds[i].fd == -1 || fds[i].revents == 0) continue;
 
             int drained = drain_stream(fds[i].fd, streams[i].tag, streams[i].name);
@@ -185,6 +203,8 @@ forwarding_done:
     }
 
 execution_cleanup:
+    if (pty_read != -1) close(pty_read);
+    if (pty_write != -1) close(pty_write);
     if (out_read != -1) close(out_read);
     if (out_write != -1) close(out_write);
     if (err_read != -1) close(err_read);

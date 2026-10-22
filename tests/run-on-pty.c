@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
         return 2;
     }
 
-    // Raw, like the slaves host-wrapper hands the target, so ONLCR does not
+    // Raw, like the PTY host-wrapper hands the target, so ONLCR does not
     // rewrite the relayed bytes on the way through.
     struct termios ios;
     if (tcgetattr(slave, &ios) == 0) {

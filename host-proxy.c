@@ -235,16 +235,25 @@ static int send_request(int fd, int argc, char *argv[]) {
     // descriptors are tried.
     struct winsize ws;
     int tty = 0;
+    int sized = 0;
     int cols = 80;
     int rows = 24;
-    int probe[] = { STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO };
+    static const struct {
+        int fd;
+        int bit;
+    } probe[] = {
+        { STDIN_FILENO, TTY_STDIN },
+        { STDOUT_FILENO, TTY_STDOUT },
+        { STDERR_FILENO, TTY_STDERR },
+    };
     for (size_t i = 0; i < sizeof(probe) / sizeof(probe[0]); i++) {
-        if (!isatty(probe[i])) continue;
-        tty = 1;
-        if (ioctl(probe[i], TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
+        if (!isatty(probe[i].fd)) continue;
+        tty |= probe[i].bit;
+        if (!sized && ioctl(probe[i].fd, TIOCGWINSZ, &ws) == 0 &&
+            ws.ws_col > 0 && ws.ws_row > 0) {
             cols = ws.ws_col < MAX_DIMENSION ? ws.ws_col : MAX_DIMENSION;
             rows = ws.ws_row < MAX_DIMENSION ? ws.ws_row : MAX_DIMENSION;
-            break;
+            sized = 1;
         }
     }
     char tty_opt[8];

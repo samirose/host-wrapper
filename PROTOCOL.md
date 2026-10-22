@@ -13,7 +13,7 @@ bytes:
 
 ```text
 3:HW1,          protocol magic and version
-5:tty=1,        options, key=value, in any order
+5:tty=7,        options, key=value, in any order
 7:cols=80,
 7:rows=24,
 0:,             end of options
@@ -33,17 +33,17 @@ format, is refused with `protocol version mismatch: rebuild host-proxy`.
 
 ### Options
 
-| Key    | Value                                | Default |
-|--------|--------------------------------------|---------|
-| `tty`  | 1 if the client has a terminal, or 0 | 0       |
-| `cols` | Terminal columns, 1–4096             | 80      |
-| `rows` | Terminal rows, 1–4096                | 24      |
+| Key    | Value                                                    | Default |
+|--------|----------------------------------------------------------|---------|
+| `tty`  | Sum of the terminal streams: stdin 1, stdout 2, stderr 4 | 0       |
+| `cols` | Terminal columns, 1–4096                                 | 80      |
+| `rows` | Terminal rows, 1–4096                                    | 24      |
 
 Every option is optional. A key the wrapper does not know, a key given twice,
 an option without `=` or containing a NUL byte, and a value out of range or
 with a leading zero each refuse the request. host-proxy sends all three:
-`tty=1` when any of its stdin, stdout and stderr is a terminal, and the size of
-the first that reports one, each dimension capped at 4096.
+`tty` with the bit of each of its stdin, stdout and stderr that is a terminal,
+and the size of the first that reports one, each dimension capped at 4096.
 
 ### Arguments
 
@@ -66,8 +66,14 @@ netstring whose first byte tags it:
 ```
 
 host-proxy writes each chunk to its own stdout or stderr as it arrives and
-exits with the status. The target's stdout and stderr are two pipes, or two
-pseudo-terminals when `tty` is 1 and its allowlist entry carries `+pty`, so
+exits with the status.
+
+When the target's allowlist entry carries `+pty`, each of its stdout and
+stderr whose `tty` bit is set goes on one pseudo-terminal, shared and framed as
+stdout when the stdout bit is set, as stderr otherwise. Every other output
+stream is a pipe of its own. The stdin bit is not acted on: the target's stdin
+is never the pseudo-terminal. Output sharing the pseudo-terminal keeps the
+order it was written in. Across a pseudo-terminal and a pipe, or two pipes,
 chunks keep the order in which the wrapper drains them: exact when the target
 pauses between writes to different streams, not guaranteed for back-to-back
 writes to both.

@@ -125,12 +125,11 @@ static int parse_dimension(const char *value) {
 }
 
 /**
- * Parses a flag: "0" or "1". Returns the value, or -1.
+ * Parses a set of TTY_ bits: one digit, 0 to 7. Returns the value, or -1.
  */
-static int parse_flag(const char *value) {
-    if (strcmp(value, "0") == 0) return 0;
-    if (strcmp(value, "1") == 0) return 1;
-    return -1;
+static int parse_tty(const char *value) {
+    if (value[0] < '0' || value[0] > '7' || value[1] != '\0') return -1;
+    return value[0] - '0';
 }
 
 /**
@@ -153,7 +152,7 @@ static int apply_option(char *option, size_t len, Terminal *term,
     if (strcmp(option, "tty") == 0) {
         key = 1;
         field = &term->tty;
-        parse = parse_flag;
+        parse = parse_tty;
     } else if (strcmp(option, "cols") == 0) {
         key = 2;
         field = &term->cols;
