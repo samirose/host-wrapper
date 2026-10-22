@@ -540,6 +540,34 @@ else
 fi
 stop_silent_target
 
+# A connector that relays like ssh: it reads the wrapper's stdout through a
+# pipe, holds the response pipe, and ends the relay when it ends, so a
+# host-proxy that ended alone would leave the wrapper a reader. A FIFO would
+# not do: macOS never reports POLLHUP on one.
+cat <<EOF > "host-proxy-ssh.sh"
+#!/bin/sh
+echo \$\$ > relay.pid
+"$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST" <&0 | cat &
+relay=\$!
+trap 'kill \$relay' TERM
+wait
+EOF
+
+start_silent_target "$TRAP_HUP"
+kill -TERM "$PROXY_PID"
+wait "$PROXY_PID"
+proxy_code=$?
+wait_until 5 test -f got-hup
+assert_equals "A terminated host-proxy ends its connector" "$proxy_code:$(cat got-hup 2>/dev/null)" "143:hup"
+stop_silent_target
+kill "$(cat relay.pid)" 2>/dev/null
+
+# Restore the connector.
+cat <<EOF > "host-proxy-ssh.sh"
+#!/bin/sh
+exec "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+EOF
+
 run_test_exit "Missing allowlist exits 125" 125 "fopen allowlist:" "" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" ./no-such-allowlist
 
 # The entry and the request resolve against the allowlist directory, so a

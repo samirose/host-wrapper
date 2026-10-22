@@ -124,7 +124,8 @@ static int catch_signals(void) {
 
 /**
  * Returns 1 when nothing reads fd any more, 0 otherwise. Polls for POLLOUT,
- * because macOS reports POLLHUP on a write end only alongside it.
+ * because macOS reports POLLHUP on a pipe's or socket's write end only
+ * alongside it, and never on a FIFO's.
  */
 static int hung_up(int fd) {
     struct pollfd p = { .fd = fd, .events = POLLOUT, .revents = 0 };

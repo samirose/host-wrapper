@@ -114,7 +114,7 @@ The response is framed the same way: each chunk of the target's stdout or stderr
 
 A target's stdout and stderr are pipes, unless its allowlist entry carries `+pty`. Then each of them that is a terminal on the client goes on one pseudo-terminal, sized to the client's, and the other stays a pipe. On a pseudo-terminal `isatty()` is true, so a tool line-buffers its output and may colour it, and stdout and stderr sharing one keep the order they were written in, as on a local terminal.
 
-The target runs in a process group of its own. When nothing reads the response any more, because the connection dropped or its client ended, or when host-wrapper itself receives SIGHUP, SIGINT or SIGTERM, host-wrapper sends that group SIGHUP, as closing a terminal does. It discards what the target writes after that, and sends the group SIGKILL if the target has not exited 5 seconds later. A target that writes nothing is hung up within a quarter of a second of the client going away.
+The target runs in a process group of its own. When nothing reads the response any more, because the connection dropped or host-proxy ended, or when host-wrapper itself receives SIGHUP, SIGINT or SIGTERM, host-wrapper sends that group SIGHUP, as closing a terminal does. It discards what the target writes after that, and sends the group SIGKILL if the target has not exited 5 seconds later. A target that writes nothing is hung up within a quarter of a second of the client going away. host-proxy, on SIGHUP, SIGINT or SIGTERM, ends its connector before itself, so that interrupting or terminating it closes the connection.
 
 ### Exit Status
 `host-proxy` exits with the target's status. Codes from 125 up follow the shell convention and report a command that did not run to completion:
@@ -125,7 +125,7 @@ The target runs in a process group of its own. When nothing reads the response a
 | 125     | host-proxy or host-wrapper failed, e.g. a malformed request, or the transport ended before the command reported a status |
 | 126     | Command denied by the allowlist                                                                                          |
 | 127     | Command allowlisted but could not be executed                                                                            |
-| 128+*n* | Target killed by signal *n*                                                                                              |
+| 128+*n* | Target, or host-proxy itself, killed by signal *n*                                                                       |
 
 ---
 

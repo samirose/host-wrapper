@@ -213,6 +213,36 @@ static void execute_ssh_child(int request_fd, int response_fd, const char *proxy
     exit(EXIT_INTERNAL_ERROR);
 }
 
+// The processes host-proxy starts, so that ending it ends them.
+static pid_t connector_pid = -1;
+static pid_t pump_pid = -1;
+
+static void on_terminate(int sig) {
+    if (pump_pid > 0) kill(pump_pid, SIGTERM);
+    if (connector_pid > 0) kill(connector_pid, SIGTERM);
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+/**
+ * Has SIGHUP, SIGINT and SIGTERM end the connector and the stdin pump before
+ * host-proxy itself, so that the connection closes rather than outliving it. A
+ * signal inherited ignored stays ignored, as a shell leaves SIGINT for a
+ * background job.
+ */
+static void forward_termination(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = on_terminate;
+    sigemptyset(&sa.sa_mask);
+    static const int ending[] = { SIGHUP, SIGINT, SIGTERM };
+    for (size_t i = 0; i < sizeof(ending) / sizeof(ending[0]); i++) {
+        struct sigaction old;
+        if (sigaction(ending[i], NULL, &old) == 0 && old.sa_handler == SIG_IGN) continue;
+        sigaction(ending[i], &sa, NULL);
+    }
+}
+
 /**
  * Copies stdin to pipe_write_fd. Never returns: exits 0 once stdin ends or
  * fails, or the pipe can no longer be written.
@@ -291,11 +321,12 @@ static int execute_proxy_parent(int request_fd, int response_fd,
     // A wrapper that refuses a request may stop reading it part way, and its
     // status frame is still the answer, so a failed send goes on to the
     // response.
-    pid_t pump_pid = -1;
     if (send_request(request_fd, argc, argv) == 0) {
         pump_pid = fork();
         if (pump_pid == -1) log_error("fork pump: %s\n", strerror(errno));
         if (pump_pid == 0) {
+            // Its copy of on_terminate then ends only the pump.
+            connector_pid = -1;
             close(response_fd);
             execute_stdin_pump(request_fd);
         }
@@ -310,10 +341,12 @@ static int execute_proxy_parent(int request_fd, int response_fd,
     if (pump_pid > 0) {
         kill(pump_pid, SIGTERM);
         waitpid(pump_pid, NULL, 0);
+        pump_pid = -1;
     }
 
     pid_t waited;
     while ((waited = waitpid(child_pid, NULL, 0)) == -1 && errno == EINTR) {}
+    connector_pid = -1;
     if (waited == -1) {
         log_error("waitpid: %s\n", strerror(errno));
         return EXIT_INTERNAL_ERROR;
@@ -362,6 +395,8 @@ int main(int argc, char *argv[]) {
     } else {
         close(request_fds[0]);
         close(response_fds[1]);
+        connector_pid = pid;
+        forward_termination();
         result = execute_proxy_parent(request_fds[1], response_fds[0], pid, argc, argv);
     }
 
