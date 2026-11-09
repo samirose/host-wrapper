@@ -1,3 +1,5 @@
+.POSIX:
+
 CC = cc
 CFLAGS = -Wall -Wextra -O2
 CLANG = clang
@@ -29,10 +31,11 @@ host-proxy: host-proxy.c $(PROXY_MODULES)
 host-wrapper-test: host-wrapper.c $(WRAPPER_MODULES)
 	$(CC) $(CFLAGS) -fsanitize=address,undefined -o $@ host-wrapper.c $(LDLIBS)
 
+# '.' stands for the '#' of #include: makes disagree on a '#' in a recipe.
 build/host-proxy.c: host-proxy.c $(PROXY_MODULES)
 	mkdir -p build
-	awk '/^#include "/ { f = $$2; gsub(/"/, "", f); while ((getline line < f) > 0) print line; close(f); next } { print }' host-proxy.c > $@.tmp
-	! grep -n '^#include "' $@.tmp
+	awk '/^.include "/ { f = $$2; gsub(/"/, "", f); while ((getline line < f) > 0) print line; close(f); next } { print }' host-proxy.c > $@.tmp
+	! grep -n '^.include "' $@.tmp
 	mv $@.tmp $@
 
 # Test the file guests compile, not host-proxy.c, so a broken amalgamation fails here.

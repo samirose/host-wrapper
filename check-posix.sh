@@ -1,8 +1,8 @@
 #!/bin/sh
 #
-# Enforces the shell portability policy: every #!/bin/sh script, and the
-# generated guest bundle, parses under dash or ash and holds no bashisms, and
-# the connection suite passes under that shell.
+# Enforces the portability policy: every #!/bin/sh script, and the generated
+# guest bundle, parses under dash or ash and holds no bashisms, the connection
+# suite passes under that shell, and the Makefile holds only POSIX make.
 #
 # macOS /bin/sh is bash in POSIX mode, so it proves nothing here. Without dash
 # or ash, the checks needing one are skipped rather than failed.
@@ -13,6 +13,12 @@ status=0
 
 # The parameter expansion alternatives omit ":-" and ":=", both POSIX.
 BASHISMS='\[\[[^:]|(^|[;&|(])[[:space:]]*(local|source)[[:space:]]|<<<|\becho +-[neE]|\+=|pipefail|\bfunction +[A-Za-z_]+ *\(|\$\{[A-Za-z_][A-Za-z0-9_]*(:[0-9]|/|\^|,)'
+
+# GNU make's functions, automatic variables, directives, pattern rules,
+# assignment operators and special targets, and a '#' in a recipe, on which
+# makes disagree. Anchored ones cannot be a recipe, which starts with a tab, but
+# for that last one; "$$" is the recipe's own shell.
+GNU_MAKE='(^|[^$])\$[({](shell|call|eval|wildcard|dir|notdir|basename|suffix|addprefix|addsuffix|join|subst|patsubst|strip|findstring|filter|filter-out|sort|word|words|wordlist|firstword|lastword|realpath|abspath|if|or|and|foreach|value|origin|flavor|error|warning|info)[[:space:]]|(^|[^$])\$[+|^]|^(define|endef|ifeq|ifneq|ifdef|ifndef|else|endif|export|unexport|override|vpath|-include|sinclude)([[:space:]]|$)|^([^[:space:]#=][^#=]*)?%[^=]*:|^[A-Za-z_.][A-Za-z0-9_.]*[[:space:]]*(:=|::=|\?=|\+=|!=)|^\.(ONESHELL|DELETE_ON_ERROR|SECONDARY|SECONDEXPANSION|INTERMEDIATE|NOTINTERMEDIATE|EXPORT_ALL_VARIABLES)|^[[:blank:]]+[^[:blank:]#].*#'
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -36,7 +42,7 @@ for f in ./*.sh ./examples/*.sh ./examples/wrappers/*.sh ./share/*.sh; do
     sh_files="$sh_files $f"
 done
 
-printf 'Checking shell portability policy\n'
+printf 'Checking portability policy\n'
 
 if [ -n "$POSIX_SH" ]; then
     printf '  POSIX shell: %s\n' "$POSIX_SH"
@@ -61,6 +67,13 @@ for f in $sh_files; do
     fi
 done
 printf '  bashisms: none in the /bin/sh scripts\n'
+
+if grep -nE "$GNU_MAKE" Makefile | grep -vE '^[0-9]+:[[:space:]]*#'; then
+    fail "Makefile contains constructs POSIX make does not share"
+fi
+awk '!/^[[:space:]]*(#|$)/ { exit !($0 == ".POSIX:") }' Makefile ||
+    fail "Makefile does not start with .POSIX:"
+printf '  Makefile: POSIX make only\n'
 
 # host-wrapper.env exists only as generated, and the connection script is
 # checked again as installed. A throwaway key stands in for the host's own.
@@ -102,9 +115,9 @@ if [ -n "$POSIX_SH" ]; then
 fi
 
 if [ "$status" -eq 0 ]; then
-    printf 'Shell portability policy: OK\n'
+    printf 'Portability policy: OK\n'
 else
-    printf 'Shell portability policy: violations found\n' >&2
+    printf 'Portability policy: violations found\n' >&2
 fi
 
 exit "$status"

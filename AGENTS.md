@@ -8,7 +8,7 @@ Working notes for AI coding agents and contributors in this repository.
     make build/host-proxy.c  # host-proxy as the one file a guest compiles
     make test             # protocol suite (sanitized binaries) + connection suite
     make test-connect     # connection and host key pinning suite only
-    make check-posix      # shell portability policy below, no compiler needed
+    make check-posix      # portability policy below, no compiler needed
     make fuzz             # libFuzzer target, requires clang
     make fuzz-proxy       # libFuzzer target for the response decoder
 
@@ -109,13 +109,22 @@ with it.
 - When sourcing, keep a slash in the path (`. ./ssh/host-wrapper.env`).
   POSIX `.` searches `PATH` for a name with no slash in it.
 
+### The Makefile
+
+Strict POSIX make, because it has to build host-proxy on whatever guest compiles
+it: `.POSIX:` is its first line, and no GNU make function, directive, pattern
+rule or assignment operator appears in it, and no recipe holds a `#`, on which
+makes disagree. Logic a POSIX macro cannot express goes in a script a recipe
+runs.
+
 ### Verifying
 
 Run `make check-posix`, which enforces everything above and is also part of
 `make test`. It needs no compiler, container or network.
 
-The target parses every `#!/bin/sh` script under a strict POSIX shell, greps for
-bashisms, generates a bundle into a scratch directory to reach the interpolated
+The target greps the Makefile for GNU make constructs, parses every
+`#!/bin/sh` script under a strict POSIX shell, greps for bashisms, generates a
+bundle into a scratch directory to reach the interpolated
 `ssh/host-wrapper.env` and the installed connection script, then runs the
 connection suite under that shell. If
 neither dash nor ash is installed it says so and skips the shell-dependent

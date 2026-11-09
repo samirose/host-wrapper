@@ -350,7 +350,7 @@ The repository includes example templates under the [`examples/`](examples/) dir
 ```bash
 make test           # protocol suite, connection suite, portability policy
 make test-connect   # connection setup only, needs no compiler
-make check-posix    # shell portability policy
+make check-posix    # portability policy
 make fuzz           # 60-second libFuzzer run on host-wrapper's parser, needs clang
 make fuzz-proxy     # the same for host-proxy's response decoder
 make test-linux     # the whole suite on Linux, in a container (macOS only)
