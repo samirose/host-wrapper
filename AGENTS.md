@@ -11,6 +11,8 @@ Working notes for AI coding agents and contributors in this repository.
     make check-posix      # portability policy below, no compiler needed
     make fuzz             # libFuzzer target, requires clang
     make fuzz-proxy       # libFuzzer target for the response decoder
+    make fuzz-coverage    # coverage of the corpus, requires clang and llvm-cov
+    make fuzz-proxy-coverage  # the same for the response decoder
 
 `make test-connect` stubs out `ip` and `ssh`, so it needs neither a network, a
 container, nor a configured host. On glibc older than 2.34, `openpty` lives in
@@ -78,7 +80,7 @@ where choosing them costs nothing.
 
 ### Tier 3 — development and test: convenience
 
-`test.sh`, `test-connect.sh`, `examples/run-container.sh`,
+`test.sh`, `test-connect.sh`, `fuzz-coverage.sh`, `examples/run-container.sh`,
 `examples/run-container-machine.sh`, `examples/spike-socket.sh`.
 
 These only ever run on a developer's machine, so readability beats portability.

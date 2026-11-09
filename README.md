@@ -355,6 +355,8 @@ make test-connect   # connection setup only, needs no compiler
 make check-posix    # portability policy
 make fuzz           # 60-second libFuzzer run on host-wrapper's parser, needs clang
 make fuzz-proxy     # the same for host-proxy's response decoder
+make fuzz-coverage  # line and branch coverage of the corpus in build/coverage, needs clang and llvm-cov
+make fuzz-proxy-coverage  # the same for host-proxy's response decoder
 make test-linux     # the whole suite on Linux, in a container (macOS only)
 ```
 

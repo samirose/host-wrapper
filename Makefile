@@ -20,7 +20,7 @@ PROXY_MODULES = output.c protocol.h
 
 all: host-wrapper host-proxy
 
-.PHONY: all test test-connect test-linux check-posix fuzz fuzz-minimize fuzz-proxy fuzz-proxy-minimize clean
+.PHONY: all test test-connect test-linux check-posix fuzz fuzz-minimize fuzz-proxy fuzz-proxy-minimize fuzz-coverage fuzz-proxy-coverage clean
 
 host-wrapper: host-wrapper.c $(WRAPPER_MODULES)
 	$(CC) $(CFLAGS) -o $@ host-wrapper.c $(LDLIBS)
@@ -104,6 +104,22 @@ fuzz-proxy-minimize: host-proxy-fuzzer
 	./host-proxy-fuzzer -merge=1 -max_len=70000 corpus-proxy_min corpus-proxy
 	rm -rf corpus-proxy
 	mv corpus-proxy_min corpus-proxy
+
+COVERAGE_CFLAGS = $(FUZZ_CFLAGS) -O0 -g -fsanitize=fuzzer -fprofile-instr-generate -fcoverage-mapping
+
+build/coverage/host-wrapper-fuzzer: fuzz.c $(WRAPPER_MODULES)
+	mkdir -p build/coverage
+	$(CLANG) $(COVERAGE_CFLAGS) -o $@ fuzz.c
+
+build/coverage/host-proxy-fuzzer: build/host-proxy.c fuzz-proxy.c
+	mkdir -p build/coverage
+	$(CLANG) $(COVERAGE_CFLAGS) -o $@ fuzz-proxy.c
+
+fuzz-coverage: build/coverage/host-wrapper-fuzzer
+	CLANG=$(CLANG) ./fuzz-coverage.sh host-wrapper corpus
+
+fuzz-proxy-coverage: build/coverage/host-proxy-fuzzer
+	CLANG=$(CLANG) ./fuzz-coverage.sh host-proxy corpus-proxy
 
 clean:
 	rm -f host-wrapper host-proxy host-wrapper-fuzzer host-proxy-fuzzer host-wrapper-test host-proxy-test
