@@ -38,12 +38,17 @@ format, is refused with `protocol version mismatch: rebuild host-proxy`.
 | `tty`  | Sum of the terminal streams: stdin 1, stdout 2, stderr 4 | 0       |
 | `cols` | Terminal columns, 1–4096                                 | 80      |
 | `rows` | Terminal rows, 1–4096                                    | 24      |
+| `term` | `TERM`, 1–64 letters, digits, `.`, `_` or `-`            | none    |
 
 Every option is optional. A key the wrapper does not know, a key given twice,
-an option without `=` or containing a NUL byte, and a value out of range or
-with a leading zero each refuse the request. host-proxy sends all three:
-`tty` with the bit of each of its stdin, stdout and stderr that is a terminal,
-and the size of the first that reports one, each dimension capped at 4096.
+an option without `=` or containing a NUL byte, and a value the table does not
+allow or with a leading zero each refuse the request. host-proxy always sends
+`tty`, with the bit of each of its stdin, stdout and stderr that is a terminal,
+and the size of the first that reports one, each dimension capped at 4096. It
+sends `term` when its own `TERM` is one the table allows.
+
+The target's `TERM` is the value of `term` when its allowlist entry carries
+`+term`. Otherwise, and without the key, the target has no `TERM`.
 
 ### Arguments
 

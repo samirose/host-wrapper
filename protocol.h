@@ -19,5 +19,21 @@
 // The largest terminal dimension, columns or rows, a request may carry.
 #define MAX_DIMENSION 4096
 
+// The longest TERM a request may carry.
+#define MAX_TERM_LEN 64
+
 // The longest frame: a tag byte and a 64 KiB chunk.
 #define MAX_FRAME (65536 + 1)
+
+/**
+ * Returns 1 when value can cross the protocol as TERM: 1 to MAX_TERM_LEN
+ * letters, digits, dots, underscores or hyphens. Returns 0 otherwise.
+ */
+static int valid_term(const char *value) {
+    size_t n = 0;
+    for (; value[n]; n++) {
+        if (n == MAX_TERM_LEN) return 0;
+        if (!isalnum((unsigned char)value[n]) && !strchr("._-", value[n])) return 0;
+    }
+    return n > 0;
+}

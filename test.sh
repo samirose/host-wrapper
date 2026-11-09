@@ -75,6 +75,8 @@ CAT_BIN=$(find_bin cat)
 SH_BIN=$(find_bin sh)
 # A shell under an entry with +pty, to report what its streams are.
 ln -s "$SH_BIN" "$TEST_DIR/sh-pty"
+# And one under an entry with +term.
+ln -s "$SH_BIN" "$TEST_DIR/sh-term"
 PWD_BIN=$(find_bin pwd)
 LS_BIN=$(find_bin ls)
 UNAME_OUT=$(uname -s)
@@ -87,6 +89,7 @@ $CAT_BIN +stdin
 $TEST_DIR/winsize-probe +pty
 $TEST_DIR/winsize-probe-piped
 $TEST_DIR/sh-pty +pty
+$TEST_DIR/sh-term +term
 EOF
 
 # The connector: host-wrapper itself, in place of ssh.
@@ -203,7 +206,7 @@ run_test_exit "Leading zero in length" 125 "Error: Netstring length has a leadin
 # not understand refuses the request rather than being skipped.
 UNAME_ARGV="1:1,${#UNAME_BIN}:$UNAME_BIN,"
 run_test_exit "Unversioned header" 125 "Error: protocol version mismatch: rebuild host-proxy" "5:80,24,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
-run_test_exit "Unknown header option" 125 "Error: Unknown header option 'term'" "3:HW1,10:term=xterm,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Unknown header option" 125 "Error: Unknown header option 'lang'" "3:HW1,6:lang=C,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Repeated header option" 125 "Error: Repeated header option 'cols'" "3:HW1,7:cols=80,7:cols=90,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Invalid header option" 125 "Error: Invalid header option 'cols=0'" "3:HW1,6:cols=0,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
 run_test_exit "Dimension over the limit" 125 "Error: Invalid header option 'cols=4097'" "3:HW1,9:cols=4097,0:,$UNAME_ARGV" "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
@@ -415,6 +418,43 @@ assert_equals "A larger terminal is sent at the limit" "$WINSIZE_OUT" "4096,40"
 
 run_test_exit "Pipes without a client terminal" 1 "TIOCGWINSZ on fd 1 failed" "" \
     "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe"
+
+# TERM as a target sees it, "unset" when it has none. Through printenv, because
+# bash gives itself an unexported TERM=dumb.
+TERM_SCRIPT='printf "[%s]" "$(printenv TERM || echo unset)"'
+SH_TERM_BIN="$TEST_DIR/sh-term"
+TERM_ARGV="1:3,${#SH_TERM_BIN}:$SH_TERM_BIN,2:-c,${#TERM_SCRIPT}:$TERM_SCRIPT,"
+SH_PTY_BIN="$TEST_DIR/sh-pty"
+NO_TERM_ARGV="1:3,${#SH_PTY_BIN}:$SH_PTY_BIN,2:-c,${#TERM_SCRIPT}:$TERM_SCRIPT,"
+LONGEST_TERM=$(printf '%064d' 0)
+
+run_test "TERM reaches an entry with +term" "[xterm-256color]" "3:HW1,19:term=xterm-256color,0:,$TERM_ARGV" \
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test "TERM up to the limit" "[$LONGEST_TERM]" "3:HW1,69:term=$LONGEST_TERM,0:,$TERM_ARGV" \
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test "No TERM without +term" "[unset]" "3:HW1,10:term=xterm,0:,$NO_TERM_ARGV" \
+    env TERM=inherited "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test "No TERM when the client sent none" "[unset]" "3:HW1,0:,$TERM_ARGV" \
+    env TERM=inherited "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "TERM over the limit" 125 "Error: Invalid header option 'term=${LONGEST_TERM}0'" "3:HW1,70:term=${LONGEST_TERM}0,0:,$TERM_ARGV" \
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "TERM with a hostile character" 125 "Error: Invalid header option 'term=a;b'" "3:HW1,8:term=a;b,0:,$TERM_ARGV" \
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Empty TERM" 125 "Error: Invalid header option 'term='" "3:HW1,5:term=,0:,$TERM_ARGV" \
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+run_test_exit "Repeated TERM" 125 "Error: Repeated header option 'term'" "3:HW1,10:term=xterm,10:term=xterm,0:,$TERM_ARGV" \
+    "$LOCAL_HOST_WRAPPER" -l "$AUDIT_LOG" "$ALLOWLIST"
+
+# The connector inherits host-proxy's TERM, and the wrapper replaces whatever it
+# inherits, so what the target reports came through the header.
+run_test "host-proxy sends TERM" "[screen.xterm_1-2]" "" \
+    env TERM=screen.xterm_1-2 "$LOCAL_HOST_PROXY" "$SH_TERM_BIN" -c "$TERM_SCRIPT"
+run_test "host-proxy without TERM" "[unset]" "" \
+    env -u TERM "$LOCAL_HOST_PROXY" "$SH_TERM_BIN" -c "$TERM_SCRIPT"
+run_test "host-proxy leaves out a TERM it cannot send" "[unset]" "" \
+    env "TERM=a b" "$LOCAL_HOST_PROXY" "$SH_TERM_BIN" -c "$TERM_SCRIPT"
+run_test "host-proxy leaves out a TERM over the limit" "[unset]" "" \
+    env "TERM=${LONGEST_TERM}0" "$LOCAL_HOST_PROXY" "$SH_TERM_BIN" -c "$TERM_SCRIPT"
 
 run_test_exit "Pipes without +pty" 1 "TIOCGWINSZ on fd 1 failed" "" \
     "$LOCAL_HOST_PROXY" "$TEST_DIR/winsize-probe-piped"

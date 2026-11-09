@@ -49,6 +49,7 @@ typedef struct {
     char *path;
     int has_stdin;
     int has_pty;
+    int has_term;
 } AllowlistEntry;
 
 /**
@@ -62,6 +63,7 @@ typedef struct {
 static char* allowlist_entry(char *line, AllowlistEntry *entry, const char **bad_option) {
     entry->has_stdin = 0;
     entry->has_pty = 0;
+    entry->has_term = 0;
     *bad_option = NULL;
 
     line[strcspn(line, "\r\n")] = 0;
@@ -92,6 +94,8 @@ static char* allowlist_entry(char *line, AllowlistEntry *entry, const char **bad
             entry->has_stdin = 1;
         } else if (strcmp(token, "+pty") == 0) {
             entry->has_pty = 1;
+        } else if (strcmp(token, "+term") == 0) {
+            entry->has_term = 1;
         } else if (!*bad_option) {
             *bad_option = token;
         }

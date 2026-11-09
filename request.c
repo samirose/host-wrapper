@@ -15,6 +15,7 @@ typedef struct {
     int tty;
     int cols;
     int rows;
+    char name[MAX_TERM_LEN + 1]; // TERM, empty when the client sent none.
 } Terminal;
 
 /**
@@ -147,8 +148,8 @@ static int apply_option(char *option, size_t len, Terminal *term,
     *value++ = '\0';
 
     unsigned key;
-    int *field;
-    int (*parse)(const char *);
+    int *field = NULL;
+    int (*parse)(const char *) = NULL;
     if (strcmp(option, "tty") == 0) {
         key = 1;
         field = &term->tty;
@@ -161,6 +162,8 @@ static int apply_option(char *option, size_t len, Terminal *term,
         key = 4;
         field = &term->rows;
         parse = parse_dimension;
+    } else if (strcmp(option, "term") == 0) {
+        key = 8;
     } else {
         log_error("Error: Unknown header option '%s'\n", option);
         return -1;
@@ -169,10 +172,12 @@ static int apply_option(char *option, size_t len, Terminal *term,
         log_error("Error: Repeated header option '%s'\n", option);
         return -1;
     }
-    if ((*field = parse(value)) == -1) {
+    int valid = field ? (*field = parse(value)) != -1 : valid_term(value);
+    if (!valid) {
         log_error("Error: Invalid header option '%s=%s'\n", option, value);
         return -1;
     }
+    if (!field) strcpy(term->name, value);
     *seen |= key;
     return 0;
 }
@@ -187,6 +192,7 @@ static int parse_header(ParserContext *ctx, Terminal *term) {
     term->tty = 0;
     term->cols = 80;
     term->rows = 24;
+    term->name[0] = '\0';
 
     char *magic = parse_netstring(ctx, NULL);
     if (!magic) return -1;

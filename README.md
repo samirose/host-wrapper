@@ -114,6 +114,8 @@ The response is framed the same way: each chunk of the target's stdout or stderr
 
 A target's stdout and stderr are pipes, unless its allowlist entry carries `+pty`. Then each of them that is a terminal on the client goes on one pseudo-terminal, sized to the client's, and the other stays a pipe. On a pseudo-terminal `isatty()` is true, so a tool line-buffers its output and may colour it, and stdout and stderr sharing one keep the order they were written in, as on a local terminal.
 
+A target has no `TERM` unless its allowlist entry carries `+term`, which gives it the client's. host-proxy sends a `TERM` of 1 to 64 letters, digits, `.`, `_` or `-`, and leaves out any other.
+
 The target runs in a process group of its own. When nothing reads the response any more, because the connection dropped or host-proxy ended, or when host-wrapper itself receives SIGHUP, SIGINT or SIGTERM, host-wrapper sends that group SIGHUP, as closing a terminal does. It discards what the target writes after that, and sends the group SIGKILL if the target has not exited 5 seconds later. A target that writes nothing is hung up within a quarter of a second of the client going away. host-proxy, on SIGHUP, SIGINT or SIGTERM, ends its connector before itself, so that interrupting or terminating it closes the connection.
 
 ### Exit Status
@@ -381,7 +383,7 @@ host-wrapper deliberately omits several features to enforce a strict boundary:
 
 Potential features for consideration:
 - **Granular User Mappings**: Configuring host-wrapper to drop privileges or map executed commands to separate local guest-specific system users.
-- **Custom Environment Variables**: Allowing specific, sanitized environment variables (e.g., `LANG`, `TERM`) to pass across the proxy.
+- **Custom Environment Variables**: Allowing specific, sanitized environment variables (e.g., `LANG`) to pass across the proxy.
 - **Dynamic Window Resizing**: Supporting terminal size change signals (SIGWINCH) dynamically during active long-running sessions, which would require an asynchronous signal forwarding layer inside the proxy and wrapper.
 
 ---

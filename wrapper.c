@@ -43,6 +43,13 @@ static int run_wrapper(ParserContext *ctx, const Allowlist *allowlist,
         goto cleanup;
     }
 
+    // Unset otherwise, so that the entry alone decides whether a target has one.
+    if ((entry->has_term && term.name[0] ? setenv("TERM", term.name, 1)
+                                         : unsetenv("TERM")) == -1) {
+        log_error("TERM: %s\n", strerror(errno));
+        goto cleanup;
+    }
+
     int on_pty = entry->has_pty ? term.tty & (TTY_STDOUT | TTY_STDERR) : 0;
     ret = execute_command(exec_path, target_argv, term, entry->has_stdin,
                           on_pty);

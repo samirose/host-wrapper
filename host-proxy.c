@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <ctype.h>
 #include <sys/wait.h>
 #include <errno.h>
 #include <signal.h>
@@ -289,12 +290,21 @@ static int send_request(int fd, int argc, char *argv[]) {
     char tty_opt[8];
     char cols_opt[32];
     char rows_opt[32];
+    char term_opt[sizeof("term=") + MAX_TERM_LEN];
     snprintf(tty_opt, sizeof(tty_opt), "tty=%d", tty);
     snprintf(cols_opt, sizeof(cols_opt), "cols=%d", cols);
     snprintf(rows_opt, sizeof(rows_opt), "rows=%d", rows);
     // The magic, the options, and the empty netstring that ends them.
-    const char *header[] = { PROTOCOL_MAGIC, tty_opt, cols_opt, rows_opt, "" };
-    for (size_t i = 0; i < sizeof(header) / sizeof(header[0]); i++) {
+    const char *header[6] = { PROTOCOL_MAGIC, tty_opt, cols_opt, rows_opt };
+    size_t count = 4;
+    const char *client_term = getenv("TERM");
+    // host-wrapper refuses a whole request over an invalid TERM.
+    if (client_term && valid_term(client_term)) {
+        snprintf(term_opt, sizeof(term_opt), "term=%s", client_term);
+        header[count++] = term_opt;
+    }
+    header[count++] = "";
+    for (size_t i = 0; i < count; i++) {
         if (write_netstring(fd, header[i], strlen(header[i])) == -1) return -1;
     }
 
