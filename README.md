@@ -51,7 +51,7 @@ host-wrapper is a dual-component client-server utility:
 
 Isolated development workspaces (such as Docker containers, Nix-shell environments, and Apple Container Machines) provide security by isolating the workspace from the host operating system (OS). However, developers may need to invoke host-side system utilities or platform-specific tools from inside these guests:
 - **Compilers and Hardware-Accelerated Linkers** (e.g., Apple Clang, Metal compiler, host toolchains).
-- **Security Key Access** (e.g., triggering host-side GPG, Git commit signing, SSH agents).
+- **Signing with Host-Held Keys** (e.g., Git commit and tag signing through a wrapper, with the key staying on the host).
 - **Proprietary/Local APIs and System Commands**.
 
 ### The Security Problem
@@ -378,6 +378,7 @@ host-wrapper deliberately omits several features to enforce a strict boundary:
 - **No Port Forwarding**: Guest containers cannot open socket tunnels or map network ports back to the host.
 - **No X11 Forwarding**: Prevents guest GUI access or graphical screen eavesdropping.
 - **No Command Argument Validation**: The wrapper validates the base command path and does not parse the arguments. [What the Allowlist Does Not Bound](#what-the-allowlist-does-not-bound) covers what that means for the tool you allowlist, and what to allowlist instead.
+- **No Terminal Input**: A target reads standard input only as bytes piped from the client, under `+stdin`, and has no controlling terminal, so `/dev/tty` cannot be opened. A tool that prompts on a terminal fails. A passphrase has to come from somewhere on the host, such as a graphical pinentry or a cached agent.
 
 ---
 
